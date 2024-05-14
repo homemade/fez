@@ -51,6 +51,12 @@ type OrttoContact struct {
 	Fields map[string]interface{} `json:"fields"`
 }
 
+type OrttoMappingResult struct {
+	UpdateFundraisingPageRequests []string
+	OrttoRequest
+	Error error
+}
+
 func (o OrttoMapper) OrttoAPIBuilder() *requests.Builder {
 	result := requests.
 		URL(o.Config.API.Endpoints.Ortto)
@@ -163,9 +169,11 @@ func (o OrttoMapper) CachedFundraisingCampaign(p2pid string, refresh bool, conte
 
 }
 
-func (o OrttoMapper) MapTrackingData(data map[string]string, context context.Context) (OrttoRequest, error) {
+func (o OrttoMapper) MapTrackingData(data map[string]string, context context.Context) OrttoMappingResult {
 
-	result := OrttoRequest{
+	var result OrttoMappingResult
+
+	result.OrttoRequest = OrttoRequest{
 		Async:         false,
 		MergeBy:       []string{"str::email"},
 		MergeStrategy: 1, // Append only (fields with existing values in Ortto’s CDP are not changed)
@@ -174,11 +182,13 @@ func (o OrttoMapper) MapTrackingData(data map[string]string, context context.Con
 
 	jsonData, err := json.Marshal(data)
 	if err != nil {
-		return result, err
+		result.Error = err
+		return result
 	}
 	if !gjson.ValidBytes(jsonData) {
 		log.Printf("Invalid Tracking Data:\n%s", string(jsonData))
-		return result, errors.New("invalid tracking data")
+		result.Error = errors.New("invalid tracking data")
+		return result
 	}
 
 	source := Source{
@@ -194,14 +204,14 @@ func (o OrttoMapper) MapTrackingData(data map[string]string, context context.Con
 
 	result.Contacts = append(result.Contacts, contact)
 
-	return result, nil
+	return result
 }
 
-func (o OrttoMapper) MapFundraisingPage(campaign *FundraisingCampaign, p2pregistrationid string, context context.Context) (string, OrttoRequest, error) {
+func (o OrttoMapper) MapFundraisingPage(campaign *FundraisingCampaign, p2pregistrationid string, context context.Context) OrttoMappingResult {
 
-	var updateFundraisingPageRequest string
+	var result OrttoMappingResult
 
-	orttoRequest := OrttoRequest{
+	result.OrttoRequest = OrttoRequest{
 		Async:         false,
 		MergeBy:       []string{fmt.Sprintf("str:cm:%s-p2p-registration-id", o.Config.CampaignPrefix), "str::email"},
 		MergeStrategy: 2, // Overwrite existing
@@ -262,7 +272,8 @@ func (o OrttoMapper) MapFundraisingPage(campaign *FundraisingCampaign, p2pregist
 
 	fundraiserRequestsWaitGroup.Wait() // wait until all requests have completed
 	if len(errors) > 0 {
-		return updateFundraisingPageRequest, orttoRequest, fmt.Errorf("raisely errors: %v", errors)
+		result.Error = fmt.Errorf("raisely errors: %v", errors)
+		return result
 	}
 
 	fundraiserBadgeExtensions := FundraiserBadgeExtensions{o.Config.FundraiserBadgeExtensions, page}
@@ -270,11 +281,13 @@ func (o OrttoMapper) MapFundraisingPage(campaign *FundraisingCampaign, p2pregist
 	var err error
 	if (fundraiserBadgeExtensions.MaxCurrentDaysForActivityStreak() < fundraiserBadgeExtensions.MaxConfiguredDaysForActivityStreak()) ||
 		(fundraiserBadgeExtensions.MaxCurrentDaysForDonationStreak() < fundraiserBadgeExtensions.MaxConfiguredDaysForDonationStreak()) {
-
-		updateFundraisingPageRequest, err = ApplyFundraiserBadgeExtensions(fundraiserBadgeExtensions, profileExerciseLogs.ExerciseLogs, profileDonations.Donations)
+		var updateFundraisingPageRequestForBadgeExtensions string
+		updateFundraisingPageRequestForBadgeExtensions, err = ApplyFundraiserBadgeExtensions(fundraiserBadgeExtensions, profileExerciseLogs.ExerciseLogs, profileDonations.Donations)
 		if err != nil {
-			return updateFundraisingPageRequest, orttoRequest, err
+			result.Error = err
+			return result
 		}
+		result.UpdateFundraisingPageRequests = append(result.UpdateFundraisingPageRequests, updateFundraisingPageRequestForBadgeExtensions)
 	}
 
 	var contact OrttoContact
@@ -286,7 +299,8 @@ func (o OrttoMapper) MapFundraisingPage(campaign *FundraisingCampaign, p2pregist
 	// Apply any fundraiser transforms
 	err = o.applyFundraiserFieldTransforms(campaign, &contact, context)
 	if err != nil {
-		return updateFundraisingPageRequest, orttoRequest, err
+		result.Error = err
+		return result
 	}
 	// To support people leaving teams we need to set any team field mappings to empty
 	emptySource := Source{
@@ -294,13 +308,16 @@ func (o OrttoMapper) MapFundraisingPage(campaign *FundraisingCampaign, p2pregist
 	}
 	mapContactFields(o.Config.TeamFieldMappings.Custom, emptySource, &contact)
 
-	orttoRequest.Contacts = append(orttoRequest.Contacts, contact)
+	result.OrttoRequest.Contacts = append(result.OrttoRequest.Contacts, contact)
 
-	return updateFundraisingPageRequest, orttoRequest, nil
+	return result
 }
 
-func (o OrttoMapper) MapTeamFundraisingPage(campaign *FundraisingCampaign, p2pteamid string, context context.Context) (OrttoRequest, error) {
-	result := OrttoRequest{
+func (o OrttoMapper) MapTeamFundraisingPage(campaign *FundraisingCampaign, p2pteamid string, context context.Context) OrttoMappingResult {
+
+	var result OrttoMappingResult
+
+	result.OrttoRequest = OrttoRequest{
 		Async:         false,
 		MergeBy:       []string{fmt.Sprintf("str:cm:%s-p2p-registration-id", o.Config.CampaignPrefix), "str::email"},
 		MergeStrategy: 2, // Overwrite existing
@@ -371,7 +388,8 @@ func (o OrttoMapper) MapTeamFundraisingPage(campaign *FundraisingCampaign, p2pte
 	}
 
 	if len(errors) > 0 {
-		return result, fmt.Errorf("raisely errors: %v", errors)
+		result.Error = fmt.Errorf("raisely errors: %v", errors)
+		return result
 	}
 
 	for _, page := range teamMemberFundraisingPages {
@@ -386,17 +404,19 @@ func (o OrttoMapper) MapTeamFundraisingPage(campaign *FundraisingCampaign, p2pte
 		// Apply any fundraiser transforms
 		err := o.applyFundraiserFieldTransforms(campaign, &contact, context)
 		if err != nil {
-			return result, err
+			result.Error = err
+			return result
 		}
 		// Apply any team transforms
 		err = o.applyTeamFieldTransforms(page, teamFundraisingPage, &contact)
 		if err != nil {
-			return result, err
+			result.Error = err
+			return result
 		}
 		result.Contacts = append(result.Contacts, contact)
 	}
 
-	return result, nil
+	return result
 }
 
 func (o OrttoMapper) SendRequest(req OrttoRequest, context context.Context) (OrttoResponse, error) {
