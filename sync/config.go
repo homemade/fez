@@ -1,19 +1,13 @@
-package pkg
+package sync
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
 	"os"
-	"path"
-	"strings"
 
 	"go.uber.org/config"
 )
-
-var YAMLConfigUnmarshaler = yamlConfigUnmarshaler{}
-var JSONCompositeEnvVar = &jsonCompositeEnvVar{}
 
 type Config struct {
 	API                     APISettings
@@ -26,15 +20,15 @@ type Config struct {
 	TeamFieldMappings         struct {
 		Custom FieldMappings
 	}
-	TeamFieldTransforms        map[string]string
-	FundraiserBadgeExtensions  FundraiserBadgeExtensionsConfig
-	FundraiserUpdateExtensions FundraiserUpdateExtensionsConfig
+	TeamFieldTransforms       map[string]string
+	FundraiserBadgeExtensions FundraiserBadgeExtensionsConfig
 }
 
 type APISettings struct {
 	Keys struct {
-		Raisely string
-		Ortto   string
+		Raisely   string
+		Funraisin string
+		Ortto     string
 	}
 	Endpoints struct {
 		Ortto string
@@ -55,16 +49,6 @@ type FundraiserBadgeExtensionsConfig struct {
 			Mapping string
 		}
 	}
-}
-
-type FundraiserUpdateExtensionsConfig struct {
-	EnhancedExerciseTotals struct {
-		PreEventTotal  string `yaml:"preEventTotal"`
-		InEventTotal   string `yaml:"inEventTotal"`
-		PostEventTotal string `yaml:"postEventTotal"`
-		EventStart     string `yaml:"eventStart"`
-		EventEnd       string `yaml:"eventEnd"`
-	} `yaml:"enhancedExerciseTotals"`
 }
 
 type FieldMappings struct {
@@ -178,21 +162,16 @@ type ConfigUnmarshaler interface {
 }
 
 type CompositeEnvVar interface {
-	SetParent(parent string)
 	LookupEnv(child string) (string, bool)
 }
 
-type jsonCompositeEnvVar struct {
-	parent string
+type JSONCompositeEnvVar struct {
+	Parent string
 }
 
-func (c *jsonCompositeEnvVar) SetParent(parent string) {
-	c.parent = parent
-}
-
-func (c jsonCompositeEnvVar) LookupEnv(child string) (string, bool) {
-	if c.parent != "" {
-		s := os.Getenv(c.parent)
+func (c JSONCompositeEnvVar) LookupEnv(child string) (string, bool) {
+	if c.Parent != "" {
+		s := os.Getenv(c.Parent)
 		if s != "" {
 			m := make(map[string]string)
 			err := json.Unmarshal([]byte(s), &m)
@@ -205,73 +184,15 @@ func (c jsonCompositeEnvVar) LookupEnv(child string) (string, bool) {
 	return "", false
 }
 
-type MappingFile struct {
-	Name   string
-	Reader io.Reader
-	Length int
+type YAMLConfigUnmarshaler struct {
+	CRMFieldMapper CRMFieldMapper
 }
 
-func MustFindRequiredMappingFile(mappingsdir string) (MappingFile, error) {
-	var result MappingFile
-	name := path.Join(mappingsdir, "required.yaml")
-	requiredMappings, err := Mappings.ReadFile(name)
-	if err == nil {
-		result.Name = name
-		result.Reader = bytes.NewReader(requiredMappings)
-		result.Length = len(requiredMappings)
-	}
-	return result, err
+type CRMFieldMapper interface {
+	ExpandFieldMappings(mappings *FieldMappings, custom bool) error
 }
 
-func MustFindDefaultsMappingFile(mappingsdir string) (MappingFile, error) {
-	var result MappingFile
-	name := path.Join(mappingsdir, "defaults.yaml")
-	defaultMappings, err := Mappings.ReadFile(name)
-	if err == nil {
-		result.Name = name
-		result.Reader = bytes.NewReader(defaultMappings)
-		result.Length = len(defaultMappings)
-	}
-	return result, err
-}
-
-func MustFindFirstCampaignMappingFile(mappingsdir string, campaign string) (MappingFile, error) {
-	var result MappingFile
-	dir := path.Join(mappingsdir, "campaigns")
-	files, err := Mappings.ReadDir(dir)
-	if err != nil {
-		return result, err
-	}
-	for _, file := range files {
-		p := file.Name()
-		if strings.HasPrefix(p, campaign) {
-			// multiple matches are not supported - guard against misconfiguration
-			if result.Name != "" {
-				err = fmt.Errorf("found multpile files with prefix: %s in dir: %s", campaign, dir)
-				return result, err
-			}
-
-			p = path.Join(dir, p)
-			var campaignMappings []byte
-			campaignMappings, err = Mappings.ReadFile(p)
-			if err == nil {
-				result.Name = p
-				result.Reader = bytes.NewReader(campaignMappings)
-				result.Length = len(campaignMappings)
-			}
-		}
-
-	}
-	if result.Name == "" {
-		err = fmt.Errorf("failed to find file with prefix: %s in dir: %s", campaign, dir)
-	}
-	return result, err
-}
-
-type yamlConfigUnmarshaler struct {
-}
-
-func (u yamlConfigUnmarshaler) Unmarshal(compev CompositeEnvVar, sources ...MappingFile) (Config, error) {
+func (u YAMLConfigUnmarshaler) Unmarshal(compev CompositeEnvVar, sources ...MappingFile) (Config, error) {
 	var result Config
 	var options []config.YAMLOption
 	for _, s := range sources {
@@ -323,97 +244,17 @@ func (u yamlConfigUnmarshaler) Unmarshal(compev CompositeEnvVar, sources ...Mapp
 	if err != nil {
 		return result, readError(key, err)
 	}
-	key = "fundraiserUpdateExtensions"
-	err = yaml.Get(key).Populate(&result.FundraiserUpdateExtensions)
-	if err != nil {
-		return result, readError(key, err)
-	}
 
-	err = expandFieldMappings(&result.FundraiserFieldMappings.Builtin, false)
+	err = u.CRMFieldMapper.ExpandFieldMappings(&result.FundraiserFieldMappings.Builtin, false)
 	if err == nil {
-		err = expandFieldMappings(&result.FundraiserFieldMappings.Custom, true)
+		err = u.CRMFieldMapper.ExpandFieldMappings(&result.FundraiserFieldMappings.Custom, true)
 	}
 	if err == nil {
-		err = expandFieldMappings(&result.TeamFieldMappings.Custom, true)
+		err = u.CRMFieldMapper.ExpandFieldMappings(&result.TeamFieldMappings.Custom, true)
 	}
 	if err != nil {
 		return result, err
 	}
 
-	return result, nil
-}
-
-func expandFieldMappings(mappings *FieldMappings, custom bool) error {
-	var err error
-	if mappings.Strings != nil {
-		mappings.Strings, err = expandSimpleFieldType(String, mappings.Strings, custom)
-	}
-	if mappings.Texts != nil {
-		mappings.Texts, err = expandSimpleFieldType(Text, mappings.Texts, custom)
-	}
-	if mappings.Decimals != nil {
-		mappings.Decimals, err = expandSimpleFieldType(Decimal, mappings.Decimals, custom)
-	}
-	if mappings.Booleans != nil {
-		mappings.Booleans, err = expandSimpleFieldType(Boolean, mappings.Booleans, custom)
-	}
-	if mappings.Timestamps != nil {
-		mappings.Timestamps, err = expandSimpleFieldType(Timestamp, mappings.Timestamps, custom)
-	}
-	if mappings.Phones != nil {
-		mappings.Phones, err = expandNestedFieldType(Phone, mappings.Phones, custom)
-	}
-	if mappings.Geos != nil {
-		mappings.Geos, err = expandNestedFieldType(Geo, mappings.Geos, custom)
-	}
-	if mappings.Integers != nil {
-		mappings.Integers, err = expandSimpleFieldType(Integer, mappings.Integers, custom)
-	}
-	return err
-}
-
-func expandSimpleFieldType(fieldtype SimpleFieldType, fieldmappings map[string]string, custom bool) (map[string]string, error) {
-	result := make(map[string]string)
-	for k, v := range fieldmappings {
-		s := ":" + k
-		if custom {
-			s = "cm" + s
-		}
-		switch fieldtype {
-		case String:
-			s = "str:" + s
-		case Text:
-			s = "txt:" + s
-		case Decimal, Integer:
-			s = "int:" + s
-		case Boolean:
-			s = "bol:" + s
-		case Timestamp:
-			s = "tme:" + s
-		default:
-			return result, fmt.Errorf("invalid simple field type %v", fieldtype)
-		}
-		result[s] = v
-	}
-	return result, nil
-}
-
-func expandNestedFieldType(fieldtype NestedFieldType, fieldmappings map[string]map[string]string, custom bool) (map[string]map[string]string, error) {
-	result := make(map[string]map[string]string)
-	for k, v := range fieldmappings {
-		s := ":" + k
-		if custom {
-			s = "cm" + s
-		}
-		switch fieldtype {
-		case Phone:
-			s = "phn:" + s
-		case Geo:
-			s = "geo:" + s
-		default:
-			return result, fmt.Errorf("invalid nested field type %v", fieldtype)
-		}
-		result[s] = v
-	}
 	return result, nil
 }
