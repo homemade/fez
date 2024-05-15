@@ -256,7 +256,7 @@ func ApplyFundraiserExtensions(extensions FundraiserExtensions, exerciselogs []E
 		fromExerciseTotalCurrentValue, _ := extensions.Page.Source.IntForPath(fromMapping)
 		if now.Before(fromTimestamp) {
 			if exerciseTotal != beforeExerciseTotalCurrentValue {
-				// Defensive code to ensure that 24 hours either side of the `from` timestamp the before total is only ever increased
+				// Defensive code to ensure that when 24 hours either side of the `from` timestamp the before total is only ever increased
 				// NOTE: this is required because the exerciseTotal is reset to 0 prior to the challenge starting but exact timing is undetermined
 				if exerciseTotal > beforeExerciseTotalCurrentValue ||
 					now.Add(time.Hour*24).After(fromTimestamp) ||
