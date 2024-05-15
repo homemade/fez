@@ -99,7 +99,7 @@ type ExerciseLogEntry struct {
 	Distance float64 `json:"distance"`
 }
 
-func (e ExerciseLogEntry) IncludeForStreak(config FundraiserBadgeExtensionsConfig) bool {
+func (e ExerciseLogEntry) IncludeForStreak(config FundraiserExtensionsConfig) bool {
 	if e.Distance < 1 {
 		return false
 	}
@@ -154,7 +154,7 @@ type Donation struct {
 	Amount    float64 `json:"amount"`
 }
 
-func (d Donation) IncludeForStreak(config FundraiserBadgeExtensionsConfig) bool {
+func (d Donation) IncludeForStreak(config FundraiserExtensionsConfig) bool {
 	return d.Amount > 0
 }
 

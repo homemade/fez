@@ -5,19 +5,19 @@ import (
 	"testing"
 )
 
-var testFundraiserBadgeExtensionsConfig FundraiserBadgeExtensionsConfig
+var testFundraiserExtensionsConfig FundraiserExtensionsConfig
 
 func init() {
-	testFundraiserBadgeExtensionsConfig.Streaks.Donation.Days = []int{3, 5}
-	testFundraiserBadgeExtensionsConfig.Streaks.Donation.Mapping = "public.donationStreaksAwarded"
-	testFundraiserBadgeExtensionsConfig.Streaks.Activity.Days = []int{10, 15, 20}
-	testFundraiserBadgeExtensionsConfig.Streaks.Activity.From = "2023-10-01T00:00:00.000Z"
-	testFundraiserBadgeExtensionsConfig.Streaks.Activity.To = "2023-10-31T00:00:00.000Z"
-	testFundraiserBadgeExtensionsConfig.Streaks.Activity.Filter = []string{"OTHER", "SWIMMING"}
-	testFundraiserBadgeExtensionsConfig.Streaks.Activity.Mapping = "public.activityStreaksAwarded"
+	testFundraiserExtensionsConfig.Streaks.Donation.Days = []int{3, 5}
+	testFundraiserExtensionsConfig.Streaks.Donation.Mapping = "public.donationStreaksAwarded"
+	testFundraiserExtensionsConfig.Streaks.Activity.Days = []int{10, 15, 20}
+	testFundraiserExtensionsConfig.Streaks.Activity.From = "2023-10-01T00:00:00.000Z"
+	testFundraiserExtensionsConfig.Streaks.Activity.To = "2023-10-31T00:00:00.000Z"
+	testFundraiserExtensionsConfig.Streaks.Activity.Filter = []string{"OTHER", "SWIMMING"}
+	testFundraiserExtensionsConfig.Streaks.Activity.Mapping = "public.activityStreaksAwarded"
 }
 
-func TestFundraiserBadgeExtensions_AllStreaks(t *testing.T) {
+func TestFundraiserExtensions_AllStreaks(t *testing.T) {
 	exerciselogs := []ExerciseLogEntry{
 		{Activity: "SWIMMING", Date: "2023-10-01T03:09:38.979Z", Distance: 100},
 		{Activity: "SWIMMING", Date: "2023-10-02T03:09:38.979Z", Distance: 200},
@@ -48,11 +48,11 @@ func TestFundraiserBadgeExtensions_AllStreaks(t *testing.T) {
 		{CreatedAt: "2023-11-05T03:09:38.979Z", Amount: 5000},
 		{CreatedAt: "2023-11-06T03:09:38.979Z", Amount: 6000},
 	}
-	extensions := FundraiserBadgeExtensions{
-		Config: testFundraiserBadgeExtensionsConfig,
+	extensions := FundraiserExtensions{
+		Config: testFundraiserExtensionsConfig,
 		Page:   FundraisingPage{},
 	}
-	result, err := ApplyFundraiserBadgeExtensions(extensions, exerciselogs, donations)
+	result, err := ApplyFundraiserExtensions(extensions, exerciselogs, donations)
 	if err != nil {
 		t.Error(err)
 	}

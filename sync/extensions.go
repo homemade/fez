@@ -83,19 +83,20 @@ func CalcDaysForStreakFromEntries(entries []StreakableEntry) EpochDays {
 	return result
 }
 
-type FundraiserBadgeExtensions struct {
-	Config FundraiserBadgeExtensionsConfig
-	Page   FundraisingPage
+type FundraiserExtensions struct {
+	Config   FundraiserExtensionsConfig
+	Campaign *FundraisingCampaign
+	Page     FundraisingPage
 }
 
-func (e FundraiserBadgeExtensions) MaxConfiguredDaysForActivityStreak() int {
+func (e FundraiserExtensions) MaxConfiguredDaysForActivityStreak() int {
 	if len(e.Config.Streaks.Activity.Days) < 1 {
 		return 0
 	}
 	return slices.Max(e.Config.Streaks.Activity.Days)
 }
 
-func (e FundraiserBadgeExtensions) MaxCurrentDaysForActivityStreak() int {
+func (e FundraiserExtensions) MaxCurrentDaysForActivityStreak() int {
 	if len(e.Config.Streaks.Activity.Days) < 1 {
 		return 0
 	}
@@ -107,14 +108,14 @@ func (e FundraiserBadgeExtensions) MaxCurrentDaysForActivityStreak() int {
 	return slices.Max(days)
 }
 
-func (e FundraiserBadgeExtensions) MaxConfiguredDaysForDonationStreak() int {
+func (e FundraiserExtensions) MaxConfiguredDaysForDonationStreak() int {
 	if len(e.Config.Streaks.Donation.Days) < 1 {
 		return 0
 	}
 	return slices.Max(e.Config.Streaks.Donation.Days)
 }
 
-func (e FundraiserBadgeExtensions) MaxCurrentDaysForDonationStreak() int {
+func (e FundraiserExtensions) MaxCurrentDaysForDonationStreak() int {
 	if len(e.Config.Streaks.Donation.Days) < 1 {
 		return 0
 	}
@@ -172,9 +173,15 @@ func AddMissingDaysForStreak(max int, days []int, value string) string {
 	return result
 }
 
-func ApplyFundraiserBadgeExtensions(extensions FundraiserBadgeExtensions, exerciselogs []ExerciseLogEntry, donations []Donation) (string, error) {
+func (e FundraiserExtensions) HasSplitExerciseTotals() bool {
+	return e.Config.SplitExerciseTotals.From != "" && len(e.Config.SplitExerciseTotals.Mappings) == 2
+}
+
+func ApplyFundraiserExtensions(extensions FundraiserExtensions, exerciselogs []ExerciseLogEntry, donations []Donation) (string, error) {
 	var err error
 	var result string
+
+	// streaks
 
 	configuredMaxActivityDays := extensions.MaxConfiguredDaysForActivityStreak()
 	currentMaxActivityDays := extensions.MaxCurrentDaysForActivityStreak()
@@ -218,6 +225,51 @@ func ApplyFundraiserBadgeExtensions(extensions FundraiserBadgeExtensions, exerci
 			newValue := AddMissingDaysForStreak(donationMaxDays, extensions.Config.Streaks.Donation.Days, currentValue)
 			if currentValue != newValue {
 				result, err = sjson.Set(result, "data."+mapping, newValue)
+				if err != nil {
+					return result, err
+				}
+			}
+		}
+	}
+
+	// split exercise totals
+	if extensions.HasSplitExerciseTotals() {
+
+		now := time.Now()
+
+		// use `from` mapping to retrieve timestamp
+		var fromTimestamp time.Time
+		for _, defaultObject := range extensions.Campaign.FundraisingPageDefaults {
+			if extensions.Config.SplitExerciseTotals.From == defaultObject.Label {
+				fromTimestamp, err = time.Parse(time.RFC3339, defaultObject.Value)
+				if err != nil {
+					return result, err
+				}
+			}
+		}
+
+		// apply split mappings based on `from` timestamp compared to current time
+		beforeMapping := extensions.Config.SplitExerciseTotals.Mappings[0]
+		fromMapping := extensions.Config.SplitExerciseTotals.Mappings[1]
+		exerciseTotal, _ := extensions.Page.Source.IntForPath("exerciseTotal")
+		beforeExerciseTotalCurrentValue, _ := extensions.Page.Source.IntForPath(beforeMapping)
+		fromExerciseTotalCurrentValue, _ := extensions.Page.Source.IntForPath(fromMapping)
+		if now.Before(fromTimestamp) {
+			if exerciseTotal != beforeExerciseTotalCurrentValue {
+				// Defensive code to ensure that 24 hours either side of the `from` timestamp the before total is only ever increased
+				// NOTE: this is required because the exerciseTotal is reset to 0 prior to the challenge starting but exact timing is undetermined
+				if exerciseTotal > beforeExerciseTotalCurrentValue ||
+					now.Add(time.Hour*24).After(fromTimestamp) ||
+					now.Add(time.Hour*-24).Before(fromTimestamp) {
+					result, err = sjson.Set(result, "data."+beforeMapping, exerciseTotal)
+					if err != nil {
+						return result, err
+					}
+				}
+			}
+		} else {
+			if exerciseTotal != fromExerciseTotalCurrentValue {
+				result, err = sjson.Set(result, "data."+fromMapping, exerciseTotal)
 				if err != nil {
 					return result, err
 				}

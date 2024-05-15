@@ -228,7 +228,7 @@ func (o OrttoMapper) MapFundraisingPage(campaign *FundraisingCampaign, p2pregist
 		fundraiserRequestsWaitGroup.Done()
 	}()
 
-	if len(o.Config.FundraiserBadgeExtensions.Streaks.Activity.Days) > 0 {
+	if o.Config.MapActivityLogs() {
 		fundraiserRequestsWaitGroup.Add(1)
 		go func() {
 			err := profileExerciseLogs.FetchRaiselyData(FetchRaiselyDataParams{
@@ -244,7 +244,7 @@ func (o OrttoMapper) MapFundraisingPage(campaign *FundraisingCampaign, p2pregist
 		}()
 	}
 
-	if len(o.Config.FundraiserBadgeExtensions.Streaks.Donation.Days) > 0 {
+	if o.Config.MapDonations() {
 		fundraiserRequestsWaitGroup.Add(1)
 		go func() {
 			err := profileDonations.FetchRaiselyData(FetchRaiselyDataParams{
@@ -265,16 +265,12 @@ func (o OrttoMapper) MapFundraisingPage(campaign *FundraisingCampaign, p2pregist
 		return updateFundraisingPageRequest, orttoRequest, fmt.Errorf("raisely errors: %v", errors)
 	}
 
-	fundraiserBadgeExtensions := FundraiserBadgeExtensions{o.Config.FundraiserBadgeExtensions, page}
+	fundraiserExtensions := FundraiserExtensions{o.Config.FundraiserExtensions, campaign, page}
 
 	var err error
-	if (fundraiserBadgeExtensions.MaxCurrentDaysForActivityStreak() < fundraiserBadgeExtensions.MaxConfiguredDaysForActivityStreak()) ||
-		(fundraiserBadgeExtensions.MaxCurrentDaysForDonationStreak() < fundraiserBadgeExtensions.MaxConfiguredDaysForDonationStreak()) {
-
-		updateFundraisingPageRequest, err = ApplyFundraiserBadgeExtensions(fundraiserBadgeExtensions, profileExerciseLogs.ExerciseLogs, profileDonations.Donations)
-		if err != nil {
-			return updateFundraisingPageRequest, orttoRequest, err
-		}
+	updateFundraisingPageRequest, err = ApplyFundraiserExtensions(fundraiserExtensions, profileExerciseLogs.ExerciseLogs, profileDonations.Donations)
+	if err != nil {
+		return updateFundraisingPageRequest, orttoRequest, err
 	}
 
 	var contact OrttoContact

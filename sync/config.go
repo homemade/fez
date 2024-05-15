@@ -20,8 +20,8 @@ type Config struct {
 	TeamFieldMappings         struct {
 		Custom FieldMappings
 	}
-	TeamFieldTransforms       map[string]string
-	FundraiserBadgeExtensions FundraiserBadgeExtensionsConfig
+	TeamFieldTransforms  map[string]string
+	FundraiserExtensions FundraiserExtensionsConfig
 }
 
 type APISettings struct {
@@ -35,7 +35,7 @@ type APISettings struct {
 	}
 }
 
-type FundraiserBadgeExtensionsConfig struct {
+type FundraiserExtensionsConfig struct {
 	Streaks struct {
 		Donation struct {
 			Days    []int
@@ -49,6 +49,10 @@ type FundraiserBadgeExtensionsConfig struct {
 			Mapping string
 		}
 	}
+	SplitExerciseTotals struct {
+		From     string
+		Mappings []string
+	} `yaml:"splitExerciseTotals"`
 }
 
 type FieldMappings struct {
@@ -239,8 +243,8 @@ func (u YAMLConfigUnmarshaler) Unmarshal(compev CompositeEnvVar, sources ...Mapp
 			return result, readError(key, err)
 		}
 	}
-	key = "fundraiserBadgeExtensions"
-	err = yaml.Get(key).Populate(&result.FundraiserBadgeExtensions)
+	key = "fundraiserExtensions"
+	err = yaml.Get(key).Populate(&result.FundraiserExtensions)
 	if err != nil {
 		return result, readError(key, err)
 	}
@@ -257,4 +261,18 @@ func (u YAMLConfigUnmarshaler) Unmarshal(compev CompositeEnvVar, sources ...Mapp
 	}
 
 	return result, nil
+}
+
+func (c Config) MapActivityLogs() bool {
+	if len(c.FundraiserExtensions.Streaks.Activity.Days) > 0 {
+		return true
+	}
+	return false
+}
+
+func (c Config) MapDonations() bool {
+	if len(c.FundraiserExtensions.Streaks.Donation.Days) > 0 {
+		return true
+	}
+	return false
 }
