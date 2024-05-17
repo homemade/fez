@@ -127,6 +127,12 @@ func (e FundraiserExtensions) MaxCurrentDaysForDonationStreak() int {
 	return slices.Max(days)
 }
 
+type TeamExtensions struct {
+	Config   TeamExtensionsConfig
+	Campaign *FundraisingCampaign
+	Page     FundraisingPage
+}
+
 func CurrentDaysForStreak(value string) []int {
 	var result []int
 	if value == "" {
@@ -173,11 +179,7 @@ func AddMissingDaysForStreak(max int, days []int, value string) string {
 	return result
 }
 
-func (e FundraiserExtensions) HasSplitExerciseTotals() bool {
-	return e.Config.SplitExerciseTotals.From != "" && len(e.Config.SplitExerciseTotals.Mappings) == 2
-}
-
-func ApplyFundraiserExtensions(extensions FundraiserExtensions, exerciselogs []ExerciseLogEntry, donations []Donation) (string, error) {
+func ApplyRaiselyFundraiserExtensions(extensions FundraiserExtensions, exerciselogs []ExerciseLogEntry, donations []Donation) (string, error) {
 	var err error
 	var result string
 
@@ -233,14 +235,31 @@ func ApplyFundraiserExtensions(extensions FundraiserExtensions, exerciselogs []E
 	}
 
 	// split exercise totals
-	if extensions.HasSplitExerciseTotals() {
+	result, err = AddSplitExerciseTotals(extensions.Campaign, extensions.Page, extensions.Config.SplitExerciseTotals, result)
+	return result, err
+
+}
+
+func ApplyRaiselyTeamExtensions(extensions TeamExtensions) (string, error) {
+
+	// split exercise totals
+	return AddSplitExerciseTotals(extensions.Campaign, extensions.Page, extensions.Config.SplitExerciseTotals, "")
+
+}
+
+func AddSplitExerciseTotals(campaign *FundraisingCampaign, page FundraisingPage, splitexercisetotals SplitExerciseTotals, json string) (string, error) {
+	var err error
+	var result string
+
+	// split exercise totals
+	if splitexercisetotals.IsConfigured() {
 
 		now := time.Now()
 
 		// use `from` mapping to retrieve timestamp
 		var fromTimestamp time.Time
-		for _, defaultObject := range extensions.Campaign.FundraisingPageDefaults {
-			if extensions.Config.SplitExerciseTotals.From == defaultObject.Label {
+		for _, defaultObject := range campaign.FundraisingPageDefaults {
+			if splitexercisetotals.From == defaultObject.Label {
 				fromTimestamp, err = time.Parse(time.RFC3339, defaultObject.Value)
 				if err != nil {
 					return result, err
@@ -249,11 +268,11 @@ func ApplyFundraiserExtensions(extensions FundraiserExtensions, exerciselogs []E
 		}
 
 		// apply split mappings based on `from` timestamp compared to current time
-		beforeMapping := extensions.Config.SplitExerciseTotals.Mappings[0]
-		fromMapping := extensions.Config.SplitExerciseTotals.Mappings[1]
-		exerciseTotal, _ := extensions.Page.Source.IntForPath("exerciseTotal")
-		beforeExerciseTotalCurrentValue, _ := extensions.Page.Source.IntForPath(beforeMapping)
-		fromExerciseTotalCurrentValue, _ := extensions.Page.Source.IntForPath(fromMapping)
+		beforeMapping := splitexercisetotals.Mappings[0]
+		fromMapping := splitexercisetotals.Mappings[1]
+		exerciseTotal, _ := page.Source.IntForPath("exerciseTotal")
+		beforeExerciseTotalCurrentValue, _ := page.Source.IntForPath(beforeMapping)
+		fromExerciseTotalCurrentValue, _ := page.Source.IntForPath(fromMapping)
 		if now.Before(fromTimestamp) {
 			if exerciseTotal != beforeExerciseTotalCurrentValue {
 				// Defensive code to ensure that 24 hours either side of the `from` timestamp the before total is only ever increased

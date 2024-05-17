@@ -17,7 +17,7 @@ func init() {
 	testFundraiserExtensionsConfig.Streaks.Activity.Mapping = "public.activityStreaksAwarded"
 }
 
-func TestFundraiserExtensions_AllStreaks(t *testing.T) {
+func TestRaiselyFundraiserExtensions_AllStreaks(t *testing.T) {
 	exerciselogs := []ExerciseLogEntry{
 		{Activity: "SWIMMING", Date: "2023-10-01T03:09:38.979Z", Distance: 100},
 		{Activity: "SWIMMING", Date: "2023-10-02T03:09:38.979Z", Distance: 200},
@@ -52,7 +52,7 @@ func TestFundraiserExtensions_AllStreaks(t *testing.T) {
 		Config: testFundraiserExtensionsConfig,
 		Page:   FundraisingPage{},
 	}
-	result, err := ApplyFundraiserExtensions(extensions, exerciselogs, donations)
+	result, err := ApplyRaiselyFundraiserExtensions(extensions, exerciselogs, donations)
 	if err != nil {
 		t.Error(err)
 	}

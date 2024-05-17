@@ -197,9 +197,7 @@ func (o OrttoMapper) MapTrackingData(data map[string]string, context context.Con
 	return result, nil
 }
 
-func (o OrttoMapper) MapFundraisingPage(campaign *FundraisingCampaign, p2pregistrationid string, context context.Context) (string, OrttoRequest, error) {
-
-	var updateFundraisingPageRequest string
+func (o OrttoMapper) MapFundraisingPage(campaign *FundraisingCampaign, p2pregistrationid string, context context.Context) (OrttoRequest, error) {
 
 	orttoRequest := OrttoRequest{
 		Async:         false,
@@ -262,15 +260,7 @@ func (o OrttoMapper) MapFundraisingPage(campaign *FundraisingCampaign, p2pregist
 
 	fundraiserRequestsWaitGroup.Wait() // wait until all requests have completed
 	if len(errors) > 0 {
-		return updateFundraisingPageRequest, orttoRequest, fmt.Errorf("raisely errors: %v", errors)
-	}
-
-	fundraiserExtensions := FundraiserExtensions{o.Config.FundraiserExtensions, campaign, page}
-
-	var err error
-	updateFundraisingPageRequest, err = ApplyFundraiserExtensions(fundraiserExtensions, profileExerciseLogs.ExerciseLogs, profileDonations.Donations)
-	if err != nil {
-		return updateFundraisingPageRequest, orttoRequest, err
+		return orttoRequest, fmt.Errorf("raisely errors: %v", errors)
 	}
 
 	var contact OrttoContact
@@ -280,19 +270,91 @@ func (o OrttoMapper) MapFundraisingPage(campaign *FundraisingCampaign, p2pregist
 	// Map custom fields
 	mapContactFields(o.Config.FundraiserFieldMappings.Custom, page.Source, &contact)
 	// Apply any fundraiser transforms
-	err = o.applyFundraiserFieldTransforms(campaign, &contact, context)
+	err := o.applyFundraiserFieldTransforms(campaign, &contact, context)
 	if err != nil {
-		return updateFundraisingPageRequest, orttoRequest, err
+		return orttoRequest, err
 	}
-	// To support people leaving teams we need to set any team field mappings to empty
+	// To support people leaving teams we also need to set any team field mappings to empty
 	emptySource := Source{
 		data: gjson.ParseBytes([]byte(`{}`)),
 	}
 	mapContactFields(o.Config.TeamFieldMappings.Custom, emptySource, &contact)
+	// NOTE: There is no need to apply any team transforms as the mappings are empty
 
 	orttoRequest.Contacts = append(orttoRequest.Contacts, contact)
 
-	return updateFundraisingPageRequest, orttoRequest, nil
+	return orttoRequest, nil
+}
+
+func (o OrttoMapper) MapFundraisingPageForExtensions(campaign *FundraisingCampaign, p2pregistrationid string, context context.Context) (UpdateRaiselyDataRequest, error) {
+
+	updateFundraisingPageRequest := UpdateRaiselyDataRequest{
+		P2PId: p2pregistrationid,
+	}
+
+	var fundraiserRequestsWaitGroup sync.WaitGroup // add a wait group for the fundraiser requests
+	var page FundraisingPage
+	var profileExerciseLogs FundraisingProfileExerciseLogs
+	var profileDonations FundraisingProfileDonations
+
+	var errors []error
+	fundraiserRequestsWaitGroup.Add(1)
+	go func() {
+		err := page.FetchRaiselyData(FetchRaiselyDataParams{
+			RaiselyAPIKey:     o.Config.API.Keys.Raisely,
+			P2PId:             p2pregistrationid,
+			Context:           context,
+			RaiselyAPIBuilder: o.RaiselyAPIBuilder(),
+		})
+		if err != nil {
+			errors = append(errors, err)
+		}
+		fundraiserRequestsWaitGroup.Done()
+	}()
+
+	if o.Config.MapActivityLogs() {
+		fundraiserRequestsWaitGroup.Add(1)
+		go func() {
+			err := profileExerciseLogs.FetchRaiselyData(FetchRaiselyDataParams{
+				RaiselyAPIKey:     o.Config.API.Keys.Raisely,
+				P2PId:             p2pregistrationid,
+				Context:           context,
+				RaiselyAPIBuilder: o.RaiselyAPIBuilder(),
+			})
+			if err != nil {
+				errors = append(errors, err)
+			}
+			fundraiserRequestsWaitGroup.Done()
+		}()
+	}
+
+	if o.Config.MapDonations() {
+		fundraiserRequestsWaitGroup.Add(1)
+		go func() {
+			err := profileDonations.FetchRaiselyData(FetchRaiselyDataParams{
+				RaiselyAPIKey:     o.Config.API.Keys.Raisely,
+				P2PId:             p2pregistrationid,
+				Context:           context,
+				RaiselyAPIBuilder: o.RaiselyAPIBuilder(),
+			})
+			if err != nil {
+				errors = append(errors, err)
+			}
+			fundraiserRequestsWaitGroup.Done()
+		}()
+	}
+
+	fundraiserRequestsWaitGroup.Wait() // wait until all requests have completed
+	if len(errors) > 0 {
+		return updateFundraisingPageRequest, fmt.Errorf("raisely errors: %v", errors)
+	}
+
+	fundraiserExtensions := FundraiserExtensions{o.Config.FundraiserExtensions, campaign, page}
+
+	var err error
+	updateFundraisingPageRequest.JSON, err = ApplyRaiselyFundraiserExtensions(fundraiserExtensions, profileExerciseLogs.ExerciseLogs, profileDonations.Donations)
+	return updateFundraisingPageRequest, err
+
 }
 
 func (o OrttoMapper) MapTeamFundraisingPage(campaign *FundraisingCampaign, p2pteamid string, context context.Context) (OrttoRequest, error) {
@@ -393,6 +455,73 @@ func (o OrttoMapper) MapTeamFundraisingPage(campaign *FundraisingCampaign, p2pte
 	}
 
 	return result, nil
+}
+
+func (o OrttoMapper) MapTeamFundraisingPageForExtensions(campaign *FundraisingCampaign, p2pteamid string, context context.Context) ([]UpdateRaiselyDataRequest, error) {
+
+	var updateFundraisingPageRequests []UpdateRaiselyDataRequest
+
+	var teamRequestsWaitGroup sync.WaitGroup // add a wait group for the team requests
+	var team FundraisingTeam
+	var teamFundraisingPage FundraisingPage
+
+	var errors []error
+	teamRequestsWaitGroup.Add(1)
+	go func() {
+		// get team members
+		err := team.FetchRaiselyData(FetchRaiselyDataParams{
+			RaiselyAPIKey:     o.Config.API.Keys.Raisely,
+			P2PId:             p2pteamid,
+			Context:           context,
+			RaiselyAPIBuilder: o.RaiselyAPIBuilder(),
+		})
+		if err != nil {
+			errors = append(errors, err)
+		}
+		teamRequestsWaitGroup.Done()
+	}()
+	teamRequestsWaitGroup.Add(1)
+	go func() {
+		// get team fundraising page
+		err := teamFundraisingPage.FetchRaiselyData(FetchRaiselyDataParams{
+			RaiselyAPIKey:     o.Config.API.Keys.Raisely,
+			P2PId:             p2pteamid,
+			Context:           context,
+			RaiselyAPIBuilder: o.RaiselyAPIBuilder(),
+		})
+		if err != nil {
+			errors = append(errors, err)
+		}
+		teamRequestsWaitGroup.Done()
+	}()
+	teamRequestsWaitGroup.Wait() // wait until both requests have completed
+
+	if len(errors) > 0 {
+		return updateFundraisingPageRequests, fmt.Errorf("raisely errors: %v", errors)
+	}
+
+	teamExtensions := TeamExtensions{o.Config.TeamExtensions, campaign, teamFundraisingPage}
+
+	var err error
+	updateTeamFundraisingPageRequest := UpdateRaiselyDataRequest{
+		P2PId: p2pteamid,
+	}
+	updateTeamFundraisingPageRequest.JSON, err = ApplyRaiselyTeamExtensions(teamExtensions)
+	if err != nil {
+		return updateFundraisingPageRequests, err
+	}
+
+	updateFundraisingPageRequests = append(updateFundraisingPageRequests, updateTeamFundraisingPageRequest)
+
+	for _, teamMember := range team.TeamMembers {
+		updateFundraisingPageRequest, err := o.MapFundraisingPageForExtensions(campaign, teamMember.P2PId, context)
+		if err != nil {
+			return updateFundraisingPageRequests, err
+		}
+		updateFundraisingPageRequests = append(updateFundraisingPageRequests, updateFundraisingPageRequest)
+	}
+
+	return updateFundraisingPageRequests, nil
 }
 
 func (o OrttoMapper) SendRequest(req OrttoRequest, context context.Context) (OrttoResponse, error) {

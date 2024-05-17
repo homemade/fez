@@ -10,20 +10,25 @@ import (
 
 type UpdateRaiselyDataParams struct {
 	RaiselyAPIKey     string
-	P2PId             string
+	Request           UpdateRaiselyDataRequest
 	Context           context.Context
 	RaiselyAPIBuilder *requests.Builder
 }
 
-func UpdateRaiselyData(params UpdateRaiselyDataParams, json string) (int, error) {
+type UpdateRaiselyDataRequest struct {
+	P2PId string
+	JSON  string
+}
+
+func UpdateRaiselyData(params UpdateRaiselyDataParams) (int, error) {
 	raiselyError := RaiselyError{}
 	var result int
 	err := params.RaiselyAPIBuilder.
 		Patch().
-		Pathf("/v3/profiles/%s", params.P2PId).
+		Pathf("/v3/profiles/%s", params.Request.P2PId).
 		Param("partial", "true").
 		Bearer(params.RaiselyAPIKey).
-		BodyBytes([]byte(json)).
+		BodyBytes([]byte(params.Request.JSON)).
 		ContentType("application/json").
 		ErrorJSON(&raiselyError).
 		Handle(func(response *http.Response) error {

@@ -22,6 +22,7 @@ type Config struct {
 	}
 	TeamFieldTransforms  map[string]string
 	FundraiserExtensions FundraiserExtensionsConfig
+	TeamExtensions       TeamExtensionsConfig
 }
 
 type APISettings struct {
@@ -49,10 +50,20 @@ type FundraiserExtensionsConfig struct {
 			Mapping string
 		}
 	}
-	SplitExerciseTotals struct {
-		From     string
-		Mappings []string
-	} `yaml:"splitExerciseTotals"`
+	SplitExerciseTotals SplitExerciseTotals `yaml:"splitExerciseTotals"`
+}
+
+type TeamExtensionsConfig struct {
+	SplitExerciseTotals SplitExerciseTotals `yaml:"splitExerciseTotals"`
+}
+
+type SplitExerciseTotals struct {
+	From     string
+	Mappings []string
+}
+
+func (s SplitExerciseTotals) IsConfigured() bool {
+	return s.From != "" && len(s.Mappings) == 2
 }
 
 type FieldMappings struct {
@@ -245,6 +256,11 @@ func (u YAMLConfigUnmarshaler) Unmarshal(compev CompositeEnvVar, sources ...Mapp
 	}
 	key = "fundraiserExtensions"
 	err = yaml.Get(key).Populate(&result.FundraiserExtensions)
+	if err != nil {
+		return result, readError(key, err)
+	}
+	key = "teamExtensions"
+	err = yaml.Get(key).Populate(&result.TeamExtensions)
 	if err != nil {
 		return result, readError(key, err)
 	}
