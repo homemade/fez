@@ -3,6 +3,9 @@ package sync
 
 import (
 	"testing"
+	"time"
+
+	"github.com/tidwall/gjson"
 )
 
 var testFundraiserExtensionsConfig FundraiserExtensionsConfig
@@ -15,9 +18,30 @@ func init() {
 	testFundraiserExtensionsConfig.Streaks.Activity.To = "2023-10-31T00:00:00.000Z"
 	testFundraiserExtensionsConfig.Streaks.Activity.Filter = []string{"OTHER", "SWIMMING"}
 	testFundraiserExtensionsConfig.Streaks.Activity.Mapping = "public.activityStreaksAwarded"
+
+	testFundraiserExtensionsConfig.SplitExerciseTotals.From = "Challenge Start"
+	testFundraiserExtensionsConfig.SplitExerciseTotals.Mappings = []string{"public.challenge_training_total", "public.challenge_total"}
 }
 
-func TestRaiselyFundraiserExtensions_AllStreaks(t *testing.T) {
+func TestRaiselyFundraiserExtensions(t *testing.T) {
+
+	now := time.Now()
+
+	extensions := FundraiserExtensions{
+		Config: testFundraiserExtensionsConfig,
+		Campaign: &FundraisingCampaign{
+			FundraisingPageDefaults: []CampaignDefault{{
+				Label: "Challenge Start",
+				Value: now.Add(time.Hour * 48).UTC().Format(time.RFC3339), // set challenge to start in 48 hours
+			}},
+		},
+		Page: FundraisingPage{
+			Source: Source{
+				data: gjson.Parse(`{"exerciseTotal": 4321}`),
+			},
+		},
+	}
+
 	exerciselogs := []ExerciseLogEntry{
 		{Activity: "SWIMMING", Date: "2023-10-01T03:09:38.979Z", Distance: 100},
 		{Activity: "SWIMMING", Date: "2023-10-02T03:09:38.979Z", Distance: 200},
@@ -48,18 +72,116 @@ func TestRaiselyFundraiserExtensions_AllStreaks(t *testing.T) {
 		{CreatedAt: "2023-11-05T03:09:38.979Z", Amount: 5000},
 		{CreatedAt: "2023-11-06T03:09:38.979Z", Amount: 6000},
 	}
-	extensions := FundraiserExtensions{
-		Config: testFundraiserExtensionsConfig,
-		Page:   FundraisingPage{},
-	}
+
+	testCase := "before challenge"
+
 	result, err := ApplyRaiselyFundraiserExtensions(extensions, exerciselogs, donations)
 	if err != nil {
 		t.Error(err)
 	}
-	expected := `{"data":{"public":{"activityStreaksAwarded":"010|015|020","donationStreaksAwarded":"003|005"}}}`
+	expected := `{"data":{"public":{"activityStreaksAwarded":"010|015|020","donationStreaksAwarded":"003|005","challenge_training_total":4321}}}`
 	if result != expected {
-		t.Errorf("Expected result: %s but have: %s", expected, result)
+		t.Errorf("Expected %s result of: %s but have: %s", testCase, expected, result)
 	}
-	t.Logf("result: %s", result)
+	t.Logf("%s result: %s", testCase, result)
+
+	testCase = "before challenge with data already added"
+	extensions.Page = FundraisingPage{
+		Source: Source{
+			data: gjson.Parse(`{"exerciseTotal": 4321, "public":{"activityStreaksAwarded":"010|015|020","donationStreaksAwarded":"003|005","challenge_training_total":4321}`),
+		},
+	}
+	result, err = ApplyRaiselyFundraiserExtensions(extensions, exerciselogs, donations)
+	if err != nil {
+		t.Error(err)
+	}
+	expected = ``
+	if result != expected {
+		t.Errorf("Expected %s result of: %s but have: %s", testCase, expected, result)
+	}
+	t.Logf("%s result: %s", testCase, result)
+
+	testCase = "before challenge with reduced exerciseTotal more than 24 hours before challenge start"
+	extensions.Page = FundraisingPage{
+		Source: Source{
+			data: gjson.Parse(`{"exerciseTotal": 3210, "public":{"activityStreaksAwarded":"010|015|020","donationStreaksAwarded":"003|005","challenge_training_total":4321}`),
+		},
+	}
+	result, err = ApplyRaiselyFundraiserExtensions(extensions, exerciselogs, donations)
+	if err != nil {
+		t.Error(err)
+	}
+	expected = `{"data":{"public":{"challenge_training_total":3210}}}`
+	if result != expected {
+		t.Errorf("Expected %s result of: %s but have: %s", testCase, expected, result)
+	}
+	t.Logf("%s result: %s", testCase, result)
+
+	testCase = "before challenge with reduced exerciseTotal less than 24 hours before challenge start"
+	extensions.Campaign.FundraisingPageDefaults[0].Value = now.Add(time.Hour * 23).UTC().Format(time.RFC3339)
+	extensions.Page = FundraisingPage{
+		Source: Source{
+			data: gjson.Parse(`{"exerciseTotal": 3210, "public":{"activityStreaksAwarded":"010|015|020","donationStreaksAwarded":"003|005","challenge_training_total":4321}`),
+		},
+	}
+	result, err = ApplyRaiselyFundraiserExtensions(extensions, exerciselogs, donations)
+	if err != nil {
+		t.Error(err)
+	}
+	expected = `` // challenge_training_total should not be reduced within 24 hours of challenge starting
+	if result != expected {
+		t.Errorf("Expected %s result of: %s but have: %s", testCase, expected, result)
+	}
+	t.Logf("%s result: %s", testCase, result)
+
+	testCase = "before challenge with increased exerciseTotal less than 24 hours before challenge start"
+	extensions.Campaign.FundraisingPageDefaults[0].Value = now.Add(time.Hour * 23).UTC().Format(time.RFC3339)
+	extensions.Page = FundraisingPage{
+		Source: Source{
+			data: gjson.Parse(`{"exerciseTotal": 5432, "public":{"activityStreaksAwarded":"010|015|020","donationStreaksAwarded":"003|005","challenge_training_total":4321}`),
+		},
+	}
+	result, err = ApplyRaiselyFundraiserExtensions(extensions, exerciselogs, donations)
+	if err != nil {
+		t.Error(err)
+	}
+	expected = `{"data":{"public":{"challenge_training_total":5432}}}`
+	if result != expected {
+		t.Errorf("Expected %s result of: %s but have: %s", testCase, expected, result)
+	}
+	t.Logf("%s result: %s", testCase, result)
+
+	testCase = "from challenge"
+	extensions.Campaign.FundraisingPageDefaults[0].Value = now.UTC().Format(time.RFC3339)
+	extensions.Page = FundraisingPage{
+		Source: Source{
+			data: gjson.Parse(`{"exerciseTotal": 1000, "public":{"challenge_training_total":5432}}`),
+		},
+	}
+	result, err = ApplyRaiselyFundraiserExtensions(extensions, exerciselogs, donations)
+	if err != nil {
+		t.Error(err)
+	}
+	expected = `{"data":{"public":{"activityStreaksAwarded":"010|015|020","donationStreaksAwarded":"003|005","challenge_total":1000}}}`
+	if result != expected {
+		t.Errorf("Expected %s result of: %s but have: %s", testCase, expected, result)
+	}
+	t.Logf("%s result: %s", testCase, result)
+
+	testCase = "from challenge with data already added"
+	extensions.Page = FundraisingPage{
+		Source: Source{
+			data: gjson.Parse(`{"exerciseTotal": 1000, "public":{"activityStreaksAwarded":"010|015|020","donationStreaksAwarded":"003|005","challenge_training_total":5432,"challenge_total":1000}`),
+		},
+	}
+	result, err = ApplyRaiselyFundraiserExtensions(extensions, exerciselogs, donations)
+	if err != nil {
+		t.Error(err)
+	}
+	expected = ``
+	if result != expected {
+		t.Errorf("Expected %s result of: %s but have: %s", testCase, expected, result)
+	}
+	t.Logf("%s result: %s", testCase, result)
 
 }

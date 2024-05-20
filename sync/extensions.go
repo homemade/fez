@@ -249,7 +249,7 @@ func ApplyRaiselyTeamExtensions(extensions TeamExtensions) (string, error) {
 
 func AddSplitExerciseTotals(campaign *FundraisingCampaign, page FundraisingPage, splitexercisetotals SplitExerciseTotals, json string) (string, error) {
 	var err error
-	var result string
+	result := json
 
 	// split exercise totals
 	if splitexercisetotals.IsConfigured() {
@@ -275,11 +275,10 @@ func AddSplitExerciseTotals(campaign *FundraisingCampaign, page FundraisingPage,
 		fromExerciseTotalCurrentValue, _ := page.Source.IntForPath(fromMapping)
 		if now.Before(fromTimestamp) {
 			if exerciseTotal != beforeExerciseTotalCurrentValue {
-				// Defensive code to ensure that 24 hours either side of the `from` timestamp the before total is only ever increased
+				// Defensive code to ensure that within 24 hours of the `from` timestamp the before total is only ever increased
 				// NOTE: this is required because the exerciseTotal is reset to 0 prior to the challenge starting but exact timing is undetermined
-				if exerciseTotal > beforeExerciseTotalCurrentValue ||
-					now.Add(time.Hour*24).After(fromTimestamp) ||
-					now.Add(time.Hour*-24).Before(fromTimestamp) {
+				defensiveWindowStart := fromTimestamp.Add(time.Hour * -24)
+				if exerciseTotal > beforeExerciseTotalCurrentValue || now.Before(defensiveWindowStart) {
 					result, err = sjson.Set(result, "data."+beforeMapping, exerciseTotal)
 					if err != nil {
 						return result, err
