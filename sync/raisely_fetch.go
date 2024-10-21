@@ -171,6 +171,7 @@ type FundraisingProfile struct {
 		P2PId string `json:"uuid"`
 		Type  string `json:"type"`
 	} `json:"parent"`
+	Status    string `json:"status"`
 	Type      string `json:"type"`
 	UpdatedAt string `json:"updatedAt"`
 }
