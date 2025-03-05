@@ -132,21 +132,21 @@ func (o OrttoMapper) CheckOrttoCustomFields(statusprocessing string, statusok st
 
 	for k, v := range result {
 		if v != statusok {
-			// generate autopilot label
-			autopilotLabel := ""
+			// generate ortto label
+			orttoLabel := ""
 			keyParts := strings.Split(k, ":")
 			if len(keyParts) == 3 {
 				// the field name is in the last part of the key
 				fieldNameParts := strings.Split(keyParts[2], "-")
 				for i, s := range fieldNameParts {
 					if i == 0 { // first part of the field name is the prefix, which is upper cased in the label
-						autopilotLabel = strings.ToUpper(s)
+						orttoLabel = strings.ToUpper(s)
 					} else { // the other parts are converted to camel case for the label
-						autopilotLabel = autopilotLabel + " " + strcase.ToCamel(s)
+						orttoLabel = orttoLabel + " " + strcase.ToCamel(s)
 					}
 				}
 			}
-			result[k] = fmt.Sprintf(`%s %s (%s)`, statusmissing, autopilotLabel, orttoTypes[k])
+			result[k] = fmt.Sprintf(`%s %s (%s)`, statusmissing, orttoLabel, orttoTypes[k])
 		}
 	}
 
