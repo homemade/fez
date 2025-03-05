@@ -5,6 +5,7 @@ go 1.21
 require (
 	github.com/biter777/countries v1.6.6
 	github.com/carlmjohnson/requests v0.23.5
+	github.com/iancoleman/strcase v0.3.0
 	github.com/tidwall/gjson v1.17.0
 	github.com/tidwall/sjson v1.2.5
 	github.com/ttacon/libphonenumber v1.2.1

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/carlmjohnson/requests"
+	"github.com/iancoleman/strcase"
 	"github.com/tidwall/gjson"
 )
 
@@ -131,7 +132,21 @@ func (o OrttoMapper) CheckOrttoCustomFields(statusprocessing string, statusok st
 
 	for k, v := range result {
 		if v != statusok {
-			result[k] = fmt.Sprintf("%s (%s)", statusmissing, orttoTypes[k])
+			// generate autopilot label
+			autopilotLabel := ""
+			keyParts := strings.Split(k, ":")
+			if len(keyParts) == 3 {
+				// the field name is in the last part of the key
+				fieldNameParts := strings.Split(keyParts[2], "-")
+				for i, s := range fieldNameParts {
+					if i == 0 { // first part of the field name is the prefix, which is upper cased in the label
+						autopilotLabel = strings.ToUpper(s)
+					} else { // the other parts are converted to camel case for the label
+						autopilotLabel = autopilotLabel + " " + strcase.ToCamel(s)
+					}
+				}
+			}
+			result[k] = fmt.Sprintf(`%s %s (%s)`, statusmissing, autopilotLabel, orttoTypes[k])
 		}
 	}
 
