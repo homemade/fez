@@ -12,7 +12,7 @@ import (
 	"github.com/ttacon/libphonenumber"
 )
 
-func init() {
+func Init(flavour Flavour) {
 
 	gjson.AddModifier("pathJoinURL", func(json, arg string) string {
 		var result string
