@@ -183,7 +183,7 @@ func (o OrttoMapper) MapTrackingData(data map[string]string, context context.Con
 	result := OrttoRequest{
 		Async:         false,
 		MergeBy:       []string{"str::email"},
-		MergeStrategy: 1, // Append only (fields with existing values in Ortto’s CDP are not changed)
+		MergeStrategy: 2, // Overwrite existing
 		FindStrategy:  0, // Any  - first MergeBy field is prioritised, if a match is not found the second field is then used
 	}
 
@@ -207,7 +207,21 @@ func (o OrttoMapper) MapTrackingData(data map[string]string, context context.Con
 	// Map custom fields
 	mapContactFields(o.Config.FundraiserFieldMappings.Custom, source, &contact)
 
-	result.Contacts = append(result.Contacts, contact)
+	email, emailExists := contact.Fields["str::email"].(string)
+	if !emailExists || email == "" {
+		return result, errors.New("missing required field in tracking data")
+	}
+	var found bool
+	found, _, err = o.FindFundraisingPage(email, context)
+	if err != nil {
+		return result, err
+	}
+
+	if !found {
+		result.Contacts = append(result.Contacts, contact)
+	} else {
+		log.Println("Found existing fundraising page for this tracking data in ortto")
+	}
 
 	return result, nil
 }
@@ -537,6 +551,56 @@ func (o OrttoMapper) MapTeamFundraisingPageForExtensions(campaign *FundraisingCa
 	}
 
 	return updateFundraisingPageRequests, nil
+}
+
+func (o OrttoMapper) FindFundraisingPage(email string, context context.Context) (bool, OrttoContact, error) {
+
+	var result OrttoContact
+
+	response := struct {
+		Contacts []OrttoContact `json:"contacts"`
+		Error    OrttoError
+	}{}
+
+	err := o.OrttoAPIBuilder().
+		Path("/v1/person/get").
+		Header("X-Api-Key", o.Config.API.Keys.Ortto).
+		Post().
+		BodyBytes([]byte(fmt.Sprintf(`
+		{
+			"limit": 1,
+			"offset": 0,
+			"fields": ["str:cm:%s-p2p-registration-id", "str::email"],
+			"filter": {
+				"$and": [
+				{
+					"$has_any_value": {
+					"field_id": "str:cm:%s-p2p-registration-id"
+					}
+				},
+				{
+					"$str::is": {
+					"field_id": "str::email",
+					"value": "%s"
+					}
+				}
+				]
+			}
+		}
+		`, o.Config.CampaignPrefix, o.Config.CampaignPrefix, email))).
+		ToJSON(&response).
+		ErrorJSON(&response.Error).
+		Fetch(context)
+	if err != nil {
+		return false, result, err
+	}
+
+	if len(response.Contacts) > 0 {
+		result = response.Contacts[0]
+		return true, result, nil
+	}
+
+	return false, result, nil
 }
 
 func (o OrttoMapper) SendRequest(req OrttoRequest, context context.Context) (OrttoResponse, error) {

@@ -90,6 +90,19 @@ func (m FieldMappings) AllKeys() []string {
 	return result
 }
 
+func (m FieldMappings) AllValues() []string {
+	var result []string
+	result = append(result, FieldMapsValues(m.Strings)...)
+	result = append(result, FieldMapsValues(m.Texts)...)
+	result = append(result, FieldMapsValues(m.Decimals)...)
+	result = append(result, FieldMapsValues(m.Booleans)...)
+	result = append(result, FieldMapsValues(m.Timestamps)...)
+	result = append(result, NestedFieldMapsValues(m.Phones)...)
+	result = append(result, NestedFieldMapsValues(m.Geos)...)
+	result = append(result, FieldMapsValues(m.Integers)...)
+	return result
+}
+
 func (m FieldMappings) AsOrttoFieldType(key string) string {
 	if m.Strings != nil {
 		if _, exists := m.Strings[key]; exists {
@@ -144,12 +157,32 @@ func FieldMapsKeys(m map[string]string) []string {
 	return result
 }
 
+func FieldMapsValues(m map[string]string) []string {
+	result := make([]string, len(m))
+	i := 0
+	for _, v := range m {
+		result[i] = v
+		i++
+	}
+	return result
+}
+
 func NestedFieldMapsKeys(m map[string]map[string]string) []string {
 	result := make([]string, len(m))
 	i := 0
 	for k := range m {
 		result[i] = k
 		i++
+	}
+	return result
+}
+
+func NestedFieldMapsValues(m map[string]map[string]string) []string {
+	var result []string
+	for _, v := range m {
+		for _, s := range v {
+			result = append(result, s)
+		}
 	}
 	return result
 }
