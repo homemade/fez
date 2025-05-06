@@ -211,13 +211,13 @@ func (o OrttoMapper) MapTrackingData(data map[string]string, context context.Con
 	if !emailExists || email == "" {
 		return result, errors.New("missing required field in tracking data")
 	}
-	var found bool
-	found, _, err = o.FindFundraisingPage(email, context)
+	var existingContacts []OrttoContact
+	existingContacts, err = o.SearchForFundraisingPageByEmail(email, context)
 	if err != nil {
 		return result, err
 	}
 
-	if !found {
+	if len(existingContacts) < 1 {
 		result.Contacts = append(result.Contacts, contact)
 	} else {
 		log.Println("Found existing fundraising page for this tracking data in ortto")
@@ -553,9 +553,7 @@ func (o OrttoMapper) MapTeamFundraisingPageForExtensions(campaign *FundraisingCa
 	return updateFundraisingPageRequests, nil
 }
 
-func (o OrttoMapper) FindFundraisingPage(email string, context context.Context) (bool, OrttoContact, error) {
-
-	var result OrttoContact
+func (o OrttoMapper) SearchForFundraisingPageByEmail(email string, context context.Context) ([]OrttoContact, error) {
 
 	response := struct {
 		Contacts []OrttoContact `json:"contacts"`
@@ -592,15 +590,11 @@ func (o OrttoMapper) FindFundraisingPage(email string, context context.Context) 
 		ErrorJSON(&response.Error).
 		Fetch(context)
 	if err != nil {
-		return false, result, err
+		return nil, err
 	}
 
-	if len(response.Contacts) > 0 {
-		result = response.Contacts[0]
-		return true, result, nil
-	}
+	return response.Contacts, nil
 
-	return false, result, nil
 }
 
 func (o OrttoMapper) SendRequest(req OrttoRequest, context context.Context) (OrttoResponse, error) {
