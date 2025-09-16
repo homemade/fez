@@ -1,6 +1,7 @@
 package sync
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -49,7 +50,18 @@ type OrttoRequest struct {
 }
 
 type OrttoContact struct {
+	Id     string                 `json:"id,omitempty"`
 	Fields map[string]interface{} `json:"fields"`
+}
+
+type OrttoContactDiff struct {
+	Id     string                           `json:"id"`
+	Fields map[string]OrttoContactDiffField `json:"fields"`
+}
+
+type OrttoContactDiffField struct {
+	Actual   interface{} `json:"actual"`
+	Expected interface{} `json:"expected"`
 }
 
 func (o OrttoMapper) OrttoAPIBuilder() *requests.Builder {
@@ -594,6 +606,109 @@ func (o OrttoMapper) SearchForFundraisingPageByEmail(email string, context conte
 	}
 
 	return response.Contacts, nil
+
+}
+
+func (o OrttoMapper) ReconcileFundraisingPage(p2pregistrationid string, contact OrttoContact, context context.Context) (OrttoContactDiff, error) {
+
+	var result OrttoContactDiff
+	result.Fields = make(map[string]OrttoContactDiffField)
+
+	fieldNamesArray := make([]string, len(contact.Fields))
+	i := 0
+	for k, _ := range contact.Fields {
+		fieldNamesArray[i] = k
+		i = i + 1
+	}
+	fieldNames, err := json.Marshal(fieldNamesArray)
+	if err != nil {
+		return result, err
+	}
+
+	response := struct {
+		Contacts []OrttoContact `json:"contacts"`
+		Error    OrttoError
+	}{}
+
+	err = o.OrttoAPIBuilder().
+		Path("/v1/person/get").
+		Header("X-Api-Key", o.Config.API.Keys.Ortto).
+		Post().
+		BodyBytes([]byte(fmt.Sprintf(`
+		{
+			"limit": 1,
+			"offset": 0,
+			"fields": %s,
+			"filter": {
+				"$and": [
+				{
+					"$has_any_value": {
+					"field_id": "str::email"
+					}
+				},
+				{
+					"$str::is": {
+					"field_id": "str:cm:%s-p2p-registration-id",
+					"value": "%s"
+					}
+				}
+				]
+			}
+		}
+		`, fieldNames, o.Config.CampaignPrefix, p2pregistrationid))).
+		ToJSON(&response).
+		ErrorJSON(&response.Error).
+		Fetch(context)
+
+	if err != nil {
+		return result, err
+	}
+
+	if len(response.Contacts) > 1 {
+		return result, fmt.Errorf("multiple ortto contacts found for p2p registration id %s", p2pregistrationid)
+	}
+
+	if len(response.Contacts) == 1 {
+
+		result.Id = response.Contacts[0].Id
+
+		for k, orttoValue := range response.Contacts[0].Fields {
+
+			sourceValue := contact.Fields[k]
+
+			// some fields need specific handling for comparison
+
+			if strings.HasPrefix(k, "geo:") { // Ortto adds an id field to geos (address fields)
+				delete(orttoValue.(map[string]interface{}), "id")
+			}
+
+			if strings.HasPrefix(k, "tme:") { // Ortto returns timestamps in ISO 8601 format
+				t, err := time.Parse(time.RFC3339, sourceValue.(string))
+				if err != nil {
+					return result, err
+				}
+				sourceValue = t.Format(time.RFC3339)
+			}
+
+			expected, err := json.Marshal(sourceValue)
+			if err != nil {
+				return result, err
+			}
+			actual, err := json.Marshal(orttoValue)
+			if err != nil {
+				return result, err
+			}
+			if !bytes.Equal(expected, actual) {
+				result.Fields[k] = OrttoContactDiffField{
+					Actual:   string(actual),
+					Expected: string(expected),
+				}
+			}
+			i = i + 1
+		}
+	}
+
+	return result, nil
 
 }
 
