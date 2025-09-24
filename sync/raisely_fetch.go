@@ -14,9 +14,9 @@ import (
 
 const (
 	FundraisingProfilesSinceTimestampFormat        = "2006-01-02T15:04:05.999"
-	FundraisingProfilesSinceLimit                  = "100"
+	FundraisingProfilesSinceLimit                  = "1000"
 	FundraisingProfileDonationsUpToTimestampFormat = "2006-01-02T15:04:05.999"
-	FundraisingProfileDonationsUpToLimit           = "100"
+	FundraisingProfileDonationsUpToLimit           = "1000"
 	FundraisingProfileExerciseLogsLimit            = "1000"
 	FundraisingProfileDonationsLimit               = "1000"
 )
