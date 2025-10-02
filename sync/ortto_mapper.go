@@ -825,6 +825,10 @@ func (o OrttoMapper) applyTeamFieldTransforms(
 		if err != nil {
 			return err
 		}
+		orgType, _ := teamFundraisingPage.Source.StringForPath("public.organisationType")
+		if orgType != "" {
+			orgType = strings.ToLower(orgType)
+		}
 		for field, transform := range o.Config.TeamFieldTransforms {
 			if _, exists := contact.Fields[field]; !exists {
 				return fmt.Errorf("invalid transform, field %s does not exist on contact", field)
@@ -837,6 +841,10 @@ func (o OrttoMapper) applyTeamFieldTransforms(
 				contact.Fields[field] = captain
 			case "isMember":
 				contact.Fields[field] = !captain
+			case "onlyIfOrgTypeSchool":
+				if orgType != "school" {
+					delete(contact.Fields, field)
+				}
 			default:
 				return fmt.Errorf("unsupported transform: %s", transform)
 			}
