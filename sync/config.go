@@ -10,7 +10,11 @@ import (
 )
 
 type Config struct {
-	API                     APISettings
+	// Target identifies the integration target (e.g., "", "ortto-contacts", "ortto-activities").
+	// Empty string indicates legacy files which default to ortto-contacts behavior.
+	// The omitempty tag ensures backward compatibility with existing JSON fixtures.
+	Target string `json:",omitempty"`
+	API    APISettings
 	CampaignPrefix          string
 	FundraiserFieldMappings struct {
 		Builtin FieldMappings
