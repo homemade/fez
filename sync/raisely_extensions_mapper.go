@@ -2,8 +2,6 @@ package sync
 
 import (
 	"context"
-	"fmt"
-	gosync "sync"
 )
 
 // RaiselyExtensionsMapper handles computing and writing extension data back to Raisely.
@@ -38,28 +36,9 @@ func (r *RaiselyExtensionsMapper) MapTeamFundraisingPageForExtensions(campaign *
 
 	var updateFundraisingPageRequests []UpdateRaiselyDataRequest
 
-	var wg gosync.WaitGroup
-	var team FundraisingTeam
-	var teamFundraisingPage FundraisingPage
-
-	var errs []error
-	wg.Add(2)
-	go func() {
-		defer wg.Done()
-		if err := team.FetchRaiselyData(r.fetchParams(p2pteamid, ctx)); err != nil {
-			errs = append(errs, err)
-		}
-	}()
-	go func() {
-		defer wg.Done()
-		if err := teamFundraisingPage.FetchRaiselyData(r.fetchParams(p2pteamid, ctx)); err != nil {
-			errs = append(errs, err)
-		}
-	}()
-	wg.Wait()
-
-	if len(errs) > 0 {
-		return updateFundraisingPageRequests, fmt.Errorf("raisely errors: %v", errs)
+	team, teamFundraisingPage, err := r.FetchTeam(p2pteamid, ctx)
+	if err != nil {
+		return updateFundraisingPageRequests, err
 	}
 
 	teamExtensions := TeamExtensions{r.Config.TeamExtensions, campaign, teamFundraisingPage}
