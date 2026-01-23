@@ -43,7 +43,6 @@ func (r *RaiselyExtensionsMapper) MapTeamFundraisingPageForExtensions(campaign *
 
 	teamExtensions := TeamExtensions{r.Config.TeamExtensions, campaign, teamFundraisingPage}
 
-	var err error
 	updateTeamFundraisingPageRequest := UpdateRaiselyDataRequest{
 		P2PId: p2pteamid,
 	}

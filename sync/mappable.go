@@ -1,57 +1,57 @@
 package sync
 
-// FieldMapper provides a common interface for types that hold field maps.
+// Mappable provides a common interface for types that can be mapped.
 // This enables shared field mapping logic.
-type FieldMapper interface {
+type Mappable interface {
 	GetFields() map[string]interface{}
 	SetField(key string, value interface{})
 	DeleteField(key string)
 }
 
-// mapFields maps fields from a source to a FieldMapper using the provided mappings.
-func mapFields(mappings FieldMappings, source Source, container FieldMapper) {
+// MapFields maps fields from a source to a destination using the provided mappings.
+func MapFields(mappings FieldMappings, source Source, destination Mappable) {
 	if mappings.Strings != nil {
 		for field, path := range mappings.Strings {
 			if result, exists := source.StringForPath(path); exists {
-				container.SetField(field, result)
+				destination.SetField(field, result)
 			} else {
-				container.SetField(field, nil)
+				destination.SetField(field, nil)
 			}
 		}
 	}
 	if mappings.Texts != nil {
 		for field, path := range mappings.Texts {
 			if result, exists := source.StringForPath(path); exists {
-				container.SetField(field, result)
+				destination.SetField(field, result)
 			} else {
-				container.SetField(field, nil)
+				destination.SetField(field, nil)
 			}
 		}
 	}
 	if mappings.Decimals != nil {
 		for field, path := range mappings.Decimals {
 			if result, exists := source.IntForPath(path); exists {
-				container.SetField(field, result)
+				destination.SetField(field, result)
 			} else {
-				container.SetField(field, nil)
+				destination.SetField(field, nil)
 			}
 		}
 	}
 	if mappings.Booleans != nil {
 		for field, path := range mappings.Booleans {
 			if result, exists := source.BoolForPath(path); exists {
-				container.SetField(field, result)
+				destination.SetField(field, result)
 			} else {
-				container.SetField(field, nil)
+				destination.SetField(field, nil)
 			}
 		}
 	}
 	if mappings.Timestamps != nil {
 		for field, path := range mappings.Timestamps {
 			if result, exists := source.StringForPath(path); exists {
-				container.SetField(field, result)
+				destination.SetField(field, result)
 			} else {
-				container.SetField(field, nil)
+				destination.SetField(field, nil)
 			}
 		}
 	}
@@ -66,9 +66,9 @@ func mapFields(mappings FieldMappings, source Source, container FieldMapper) {
 				}
 			}
 			if isEmptyObject {
-				container.SetField(field, nil)
+				destination.SetField(field, nil)
 			} else {
-				container.SetField(field, phoneObject)
+				destination.SetField(field, phoneObject)
 			}
 		}
 	}
@@ -83,18 +83,18 @@ func mapFields(mappings FieldMappings, source Source, container FieldMapper) {
 				}
 			}
 			if isEmptyObject {
-				container.SetField(field, nil)
+				destination.SetField(field, nil)
 			} else {
-				container.SetField(field, geoObject)
+				destination.SetField(field, geoObject)
 			}
 		}
 	}
 	if mappings.Integers != nil {
 		for field, path := range mappings.Integers {
 			if result, exists := source.IntForPath(path); exists {
-				container.SetField(field, result)
+				destination.SetField(field, result)
 			} else {
-				container.SetField(field, nil)
+				destination.SetField(field, nil)
 			}
 		}
 	}

@@ -18,7 +18,7 @@ type DonationsUpToFetcher interface {
 type ApplyFundraiserFieldTransformsParams struct {
 	Config           Config
 	Campaign         *FundraisingCampaign
-	Container        FieldMapper
+	Destination      Mappable
 	Ctx              context.Context
 	DonationsFetcher DonationsUpToFetcher
 	// SkipDonationCheck when true, logs a warning instead of checking donations for
@@ -26,14 +26,14 @@ type ApplyFundraiserFieldTransformsParams struct {
 	SkipDonationCheck bool
 }
 
-// ApplyFundraiserFieldTransforms applies configured transforms to a field container.
+// ApplyFundraiserFieldTransforms applies configured transforms to a field and maps it to the provided destination.
 // This is shared between OrttoContactsMapper and OrttoActivitiesMapper.
 func ApplyFundraiserFieldTransforms(params ApplyFundraiserFieldTransformsParams) error {
 	if len(params.Config.FundraiserFieldTransforms) == 0 {
 		return nil
 	}
 
-	fields := params.Container.GetFields()
+	fields := params.Destination.GetFields()
 
 	for field, transform := range params.Config.FundraiserFieldTransforms {
 		if _, exists := fields[field]; !exists {
@@ -53,7 +53,7 @@ func ApplyFundraiserFieldTransforms(params ApplyFundraiserFieldTransformsParams)
 			if fieldValue, ok := fields[field].(string); ok {
 				for _, defaultObject := range params.Campaign.FundraisingPageDefaults {
 					if arg == defaultObject.Label && fieldValue == defaultObject.Value {
-						params.Container.SetField(field, "")
+						params.Destination.SetField(field, "")
 					}
 				}
 			}
@@ -62,7 +62,7 @@ func ApplyFundraiserFieldTransforms(params ApplyFundraiserFieldTransformsParams)
 			if fieldValue, ok := fields[field].(string); ok {
 				for _, defaultObject := range params.Campaign.FundraisingPageDefaults {
 					if arg == defaultObject.Label && fieldValue == defaultObject.Value {
-						params.Container.DeleteField(field)
+						params.Destination.DeleteField(field)
 					}
 				}
 			}
@@ -114,7 +114,7 @@ func ApplyFundraiserFieldTransforms(params ApplyFundraiserFieldTransformsParams)
 				}
 			}
 			// default to removing the field
-			params.Container.DeleteField(field)
+			params.Destination.DeleteField(field)
 
 		default:
 			return fmt.Errorf("unsupported transform: %s", transform)
@@ -124,13 +124,13 @@ func ApplyFundraiserFieldTransforms(params ApplyFundraiserFieldTransformsParams)
 	return nil
 }
 
-// ApplyTeamFieldTransforms applies team-specific transforms to a field container.
+// ApplyTeamFieldTransforms applies team-specific transforms to a field and maps it to the provided destination.
 // This is shared between OrttoContactsMapper and OrttoActivitiesMapper.
 func ApplyTeamFieldTransforms(
 	config Config,
 	teamMemberPage FundraisingPage,
 	teamPage FundraisingPage,
-	container FieldMapper,
+	destination Mappable,
 ) error {
 	if len(config.TeamFieldTransforms) == 0 {
 		return nil
@@ -146,7 +146,7 @@ func ApplyTeamFieldTransforms(
 		orgType = strings.ToLower(orgType)
 	}
 
-	fields := container.GetFields()
+	fields := destination.GetFields()
 
 	for field, transform := range config.TeamFieldTransforms {
 		if _, exists := fields[field]; !exists {
@@ -158,12 +158,12 @@ func ApplyTeamFieldTransforms(
 
 		switch function {
 		case "isCaptain":
-			container.SetField(field, captain)
+			destination.SetField(field, captain)
 		case "isMember":
-			container.SetField(field, !captain)
+			destination.SetField(field, !captain)
 		case "onlyIfOrgTypeSchool":
 			if orgType != "school" {
-				container.DeleteField(field)
+				destination.DeleteField(field)
 			}
 		default:
 			return fmt.Errorf("unsupported transform: %s", transform)

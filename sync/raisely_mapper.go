@@ -12,36 +12,36 @@ type RaiselyMapper struct {
 	RaiselyFetcher
 }
 
-// MapFundraiserFields maps builtin and custom fundraiser fields from source to container.
-func (m *RaiselyMapper) MapFundraiserFields(source Source, container FieldMapper) {
-	mapFields(m.Config.FundraiserFieldMappings.Builtin, source, container)
-	mapFields(m.Config.FundraiserFieldMappings.Custom, source, container)
+// MapFundraiserFields maps builtin and custom fundraiser fields from source to destination.
+func (m *RaiselyMapper) MapFundraiserFields(source Source, destination Mappable) {
+	MapFields(m.Config.FundraiserFieldMappings.Builtin, source, destination)
+	MapFields(m.Config.FundraiserFieldMappings.Custom, source, destination)
 }
 
-// MapTeamFields maps team custom fields from source to container.
-func (m *RaiselyMapper) MapTeamFields(source Source, container FieldMapper) {
-	mapFields(m.Config.TeamFieldMappings.Custom, source, container)
+// MapTeamFields maps team custom fields from source to destination.
+func (m *RaiselyMapper) MapTeamFields(source Source, destination Mappable) {
+	MapFields(m.Config.TeamFieldMappings.Custom, source, destination)
 }
 
-// ClearTeamFields maps empty team fields to container (for non-team members).
-func (m *RaiselyMapper) ClearTeamFields(container FieldMapper) {
+// ClearTeamFields maps empty team fields to a destination (for non-team members).
+func (m *RaiselyMapper) ClearTeamFields(destination Mappable) {
 	emptySource := Source{data: gjson.ParseBytes([]byte(`{}`))}
-	mapFields(m.Config.TeamFieldMappings.Custom, emptySource, container)
+	MapFields(m.Config.TeamFieldMappings.Custom, emptySource, destination)
 }
 
-// ApplyFundraiserTransforms applies fundraiser field transforms to the container.
-func (m *RaiselyMapper) ApplyFundraiserTransforms(container FieldMapper, campaign *FundraisingCampaign, ctx context.Context, skipDonationCheck bool) error {
+// ApplyFundraiserTransforms applies fundraiser field transforms and maps them to the provided destination.
+func (m *RaiselyMapper) ApplyFundraiserTransforms(destination Mappable, campaign *FundraisingCampaign, ctx context.Context, skipDonationCheck bool) error {
 	return ApplyFundraiserFieldTransforms(ApplyFundraiserFieldTransformsParams{
 		Config:            m.Config,
 		Campaign:          campaign,
-		Container:         container,
+		Destination:       destination,
 		Ctx:               ctx,
 		DonationsFetcher:  &m.RaiselyFetcher,
 		SkipDonationCheck: skipDonationCheck,
 	})
 }
 
-// ApplyTeamTransforms applies team field transforms to the container.
-func (m *RaiselyMapper) ApplyTeamTransforms(page, teamPage FundraisingPage, container FieldMapper) error {
-	return ApplyTeamFieldTransforms(m.Config, page, teamPage, container)
+// ApplyTeamTransforms applies team field transforms and maps them to the provided destination.
+func (m *RaiselyMapper) ApplyTeamTransforms(page, teamPage FundraisingPage, destination Mappable) error {
+	return ApplyTeamFieldTransforms(m.Config, page, teamPage, destination)
 }
