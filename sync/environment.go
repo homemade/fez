@@ -6,9 +6,28 @@ import (
 	"strings"
 )
 
-func LoadCampaignConfigFromEnvironment(embeddedmappings EmbeddedMappings,
-	crmfieldmapper CRMFieldMapper,
-	campaign string) (Config, error) {
+// configOptions holds optional configuration for LoadCampaignConfigFromEnvironment.
+type configOptions struct {
+	crmFieldMapper CRMFieldMapper
+}
+
+// ConfigOption is a functional option for configuring LoadCampaignConfigFromEnvironment.
+type ConfigOption func(*configOptions)
+
+// ConfigWithCRMFieldMapper sets the CRMFieldMapper for expanding field mappings.
+// This is required for Ortto integration but not needed for Raisely-only use cases.
+func ConfigWithCRMFieldMapper(mapper CRMFieldMapper) ConfigOption {
+	return func(o *configOptions) {
+		o.crmFieldMapper = mapper
+	}
+}
+
+func LoadCampaignConfigFromEnvironment(embeddedmappings EmbeddedMappings, campaign string, opts ...ConfigOption) (Config, error) {
+	var options configOptions
+	for _, opt := range opts {
+		opt(&options)
+	}
+
 	var result Config
 
 	// Find campaign file and extract target from filename
@@ -40,7 +59,7 @@ func LoadCampaignConfigFromEnvironment(embeddedmappings EmbeddedMappings,
 
 	compositeEnvVar := JSONCompositeEnvVar{Parent: parent}
 
-	yamlConfigUnmarshaler := YAMLConfigUnmarshaler{CRMFieldMapper: crmfieldmapper}
+	yamlConfigUnmarshaler := YAMLConfigUnmarshaler{CRMFieldMapper: options.crmFieldMapper}
 
 	// Load config for this campaign
 	result, err = yamlConfigUnmarshaler.Unmarshal(

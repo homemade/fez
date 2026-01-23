@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"slices"
+	gosync "sync"
 	"time"
 
 	"github.com/carlmjohnson/requests"
@@ -377,4 +378,160 @@ func (d *FundraisingProfileExerciseLogs) FetchRaiselyData(params FetchRaiselyDat
 	}
 
 	return err
+}
+
+// RaiselyFetcher handles fetching data from the Raisely API.
+// It encapsulates the common fields and patterns used across all mappers.
+type RaiselyFetcher struct {
+	Campaign       string
+	Config         Config
+	RecordRequests bool
+}
+
+// FundraiserData holds the fetched data for a single fundraiser.
+type FundraiserData struct {
+	Page         FundraisingPage
+	ExerciseLogs FundraisingProfileExerciseLogs
+	Donations    FundraisingProfileDonations
+}
+
+// TeamData holds the fetched data for a team and its members.
+type TeamData struct {
+	Team        FundraisingTeam
+	TeamPage    FundraisingPage
+	MemberPages []FundraisingPage
+}
+
+// fetchParams builds FetchRaiselyDataParams for a given P2P ID and context.
+func (r *RaiselyFetcher) fetchParams(p2pid string, ctx context.Context) FetchRaiselyDataParams {
+	apiBuilder := requests.URL("https://api.raisely.com")
+	if r.RecordRequests {
+		apiBuilder = apiBuilder.Transport(requests.Record(nil, fmt.Sprintf("pkg/testdata/.requests/%s/raisely", r.Campaign)))
+	}
+	return FetchRaiselyDataParams{
+		RaiselyAPIKey:     r.Config.API.Keys.Raisely,
+		P2PId:             p2pid,
+		Context:           ctx,
+		RaiselyAPIBuilder: apiBuilder,
+	}
+}
+
+// FetchFundraiserData fetches a fundraising page and optionally exercise logs and donations.
+func (r *RaiselyFetcher) FetchFundraiserData(p2pid string, ctx context.Context) (FundraiserData, error) {
+	var result FundraiserData
+	var wg gosync.WaitGroup // add a wait group for the fundraiser requests
+	var errs []error
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		if err := result.Page.FetchRaiselyData(r.fetchParams(p2pid, ctx)); err != nil {
+			errs = append(errs, err)
+		}
+	}()
+
+	if r.Config.MapActivityLogs() {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := result.ExerciseLogs.FetchRaiselyData(r.fetchParams(p2pid, ctx)); err != nil {
+				errs = append(errs, err)
+			}
+		}()
+	}
+
+	if r.Config.MapDonations() {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := result.Donations.FetchRaiselyData(r.fetchParams(p2pid, ctx)); err != nil {
+				errs = append(errs, err)
+			}
+		}()
+	}
+
+	wg.Wait() // wait until all requests have completed
+	if len(errs) > 0 {
+		return result, fmt.Errorf("raisely errors: %v", errs)
+	}
+
+	return result, nil
+}
+
+// FetchTeamData fetches a team, its fundraising page, and all member pages.
+func (r *RaiselyFetcher) FetchTeamData(p2pteamid string, ctx context.Context) (TeamData, error) {
+	var result TeamData
+	var wg gosync.WaitGroup // add a wait group for the team requests
+	var errs []error
+
+	// Fetch team members and team fundraising page in parallel
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		if err := result.Team.FetchRaiselyData(r.fetchParams(p2pteamid, ctx)); err != nil {
+			errs = append(errs, err)
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		if err := result.TeamPage.FetchRaiselyData(r.fetchParams(p2pteamid, ctx)); err != nil {
+			errs = append(errs, err)
+		}
+	}()
+	wg.Wait() // wait until both requests have completed
+
+	if len(errs) > 0 {
+		return result, fmt.Errorf("raisely errors: %v", errs)
+	}
+
+	// Fetch all team member's fundraising pages in parallel
+	if len(result.Team.TeamMembers) > 0 {
+		var memberWg gosync.WaitGroup // add a wait group for the team members fundraising page requests
+		var memberMu gosync.Mutex
+		for _, member := range result.Team.TeamMembers {
+			memberWg.Add(1)
+			go func(memberP2PId string) {
+				defer memberWg.Done()
+				var page FundraisingPage
+				if err := page.FetchRaiselyData(r.fetchParams(memberP2PId, ctx)); err != nil {
+					errs = append(errs, err)
+				}
+				memberMu.Lock()
+				result.MemberPages = append(result.MemberPages, page)
+				memberMu.Unlock()
+			}(member.P2PId)
+		}
+		memberWg.Wait() // wait until all team members fundraising page requests have completed
+	}
+
+	if len(errs) > 0 {
+		return result, fmt.Errorf("raisely errors: %v", errs)
+	}
+
+	return result, nil
+}
+
+// FetchFundraisingCampaign fetches the campaign data from Raisely.
+func (r *RaiselyFetcher) FetchFundraisingCampaign(p2pid string, ctx context.Context) (*FundraisingCampaign, error) {
+	campaign := &FundraisingCampaign{}
+	err := campaign.FetchRaiselyData(r.fetchParams(p2pid, ctx))
+	if err != nil {
+		return nil, err
+	}
+	return campaign, nil
+}
+
+// CachedFundraisingCampaign fetches and caches the fundraising campaign data from Raisely.
+func (r *RaiselyFetcher) CachedFundraisingCampaign(p2pid string, refresh bool, ctx context.Context) (*FundraisingCampaign, error) {
+	if cachedFundraisingCampaign == nil || refresh {
+		fundraisingCampaign, err := r.FetchFundraisingCampaign(p2pid, ctx)
+		if err == nil {
+			cachedFundraisingCampaign = fundraisingCampaign
+		}
+		if err != nil && cachedFundraisingCampaign == nil {
+			return nil, err
+		}
+	}
+
+	return cachedFundraisingCampaign, nil
 }

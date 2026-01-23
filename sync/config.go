@@ -305,15 +305,20 @@ func (u YAMLConfigUnmarshaler) Unmarshal(compev CompositeEnvVar, sources ...Mapp
 		return result, readError(key, err)
 	}
 
-	err = u.CRMFieldMapper.ExpandFieldMappings(&result.FundraiserFieldMappings.Builtin, false)
-	if err == nil {
-		err = u.CRMFieldMapper.ExpandFieldMappings(&result.FundraiserFieldMappings.Custom, true)
-	}
-	if err == nil {
-		err = u.CRMFieldMapper.ExpandFieldMappings(&result.TeamFieldMappings.Custom, true)
-	}
-	if err != nil {
-		return result, err
+	// Only expand field mappings if CRMFieldMapper is provided.
+	// This allows loading config for Raisely-only use cases (like extensions)
+	// without requiring Ortto/CRM dependencies.
+	if u.CRMFieldMapper != nil {
+		err = u.CRMFieldMapper.ExpandFieldMappings(&result.FundraiserFieldMappings.Builtin, false)
+		if err == nil {
+			err = u.CRMFieldMapper.ExpandFieldMappings(&result.FundraiserFieldMappings.Custom, true)
+		}
+		if err == nil {
+			err = u.CRMFieldMapper.ExpandFieldMappings(&result.TeamFieldMappings.Custom, true)
+		}
+		if err != nil {
+			return result, err
+		}
 	}
 
 	return result, nil
