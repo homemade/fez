@@ -36,7 +36,8 @@ type APISettings struct {
 	}
 	// Ids contains API identifiers needed for syncing.
 	Ids struct {
-		Ortto string // e.g. Activity ID if Target is "ortto-activities" (Ortto Activities API)
+		OrttoActivityId           string `yaml:"orttoActivityId"`           // Required if Target is "ortto-activities" (Ortto Activities API)
+		OrttoFundraiserMergeField string `yaml:"orttoFundraiserMergeField"` // Required if Target is "ortto-activities" (Ortto Activities API)
 	}
 	Endpoints struct {
 		Ortto string

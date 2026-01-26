@@ -8,7 +8,7 @@ import (
 // This is separate from Ortto integration - it reads from Raisely, computes extensions
 // (like streaks), and writes the results back to Raisely fundraising pages.
 type RaiselyExtensionsMapper struct {
-	RaiselyFetcher
+	RaiselyFetcherAndUpdater
 }
 
 // MapFundraisingPageForExtensions computes extension data for a fundraising page

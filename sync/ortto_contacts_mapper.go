@@ -19,6 +19,7 @@ import (
 // This implements the TargetMapper interface for the ortto-contacts target.
 type OrttoContactsMapper struct {
 	RaiselyMapper
+	OrttoSyncContext
 }
 
 func (o OrttoContactsMapper) OrttoAPIBuilder() *requests.Builder {
@@ -31,7 +32,7 @@ func (o OrttoContactsMapper) OrttoAPIBuilder() *requests.Builder {
 }
 
 // MapFundraisingPage maps a fundraising page to an Ortto contacts request.
-func (o *OrttoContactsMapper) MapFundraisingPage(campaign *FundraisingCampaign, p2pregistrationid string, ctx context.Context) (TargetRequest, error) {
+func (o *OrttoContactsMapper) MapFundraisingPage(campaign *FundraisingCampaign, p2pregistrationid string, ctx context.Context) (OrttoRequest, error) {
 
 	orttoRequest := OrttoContactsRequest{
 		Async:         false,
@@ -60,7 +61,7 @@ func (o *OrttoContactsMapper) MapFundraisingPage(campaign *FundraisingCampaign, 
 }
 
 // MapTeamFundraisingPage maps team members' fundraising pages to an Ortto contacts request.
-func (o *OrttoContactsMapper) MapTeamFundraisingPage(campaign *FundraisingCampaign, p2pteamid string, ctx context.Context) (TargetRequest, error) {
+func (o *OrttoContactsMapper) MapTeamFundraisingPage(campaign *FundraisingCampaign, p2pteamid string, ctx context.Context) (OrttoRequest, error) {
 	result := OrttoContactsRequest{
 		Async:         false,
 		MergeBy:       []string{fmt.Sprintf("str:cm:%s-p2p-registration-id", o.Config.CampaignPrefix), "str::email"},
@@ -97,7 +98,7 @@ func (o *OrttoContactsMapper) MapTeamFundraisingPage(campaign *FundraisingCampai
 }
 
 // MapTrackingData maps tracking form data to an Ortto contacts request.
-func (o *OrttoContactsMapper) MapTrackingData(data map[string]string, ctx context.Context) (TargetRequest, error) {
+func (o *OrttoContactsMapper) MapTrackingData(data map[string]string, ctx context.Context) (OrttoRequest, error) {
 
 	result := OrttoContactsRequest{
 		Async:         false,
@@ -143,7 +144,7 @@ func (o *OrttoContactsMapper) MapTrackingData(data map[string]string, ctx contex
 }
 
 // SendRequest sends an Ortto contacts request to the Ortto API.
-func (o *OrttoContactsMapper) SendRequest(req TargetRequest, ctx context.Context) (TargetResponse, error) {
+func (o *OrttoContactsMapper) SendRequest(req OrttoRequest, ctx context.Context) (OrttoResponse, error) {
 	contactsReq, ok := req.(OrttoContactsRequest)
 	if !ok {
 		return nil, fmt.Errorf("expected OrttoContactsRequest, got %T", req)

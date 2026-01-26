@@ -2,15 +2,37 @@ package sync
 
 import (
 	"context"
-	"errors"
 	"fmt"
 )
 
-// TargetRequest is the interface for all target-specific request types.
+type OrttoSyncContext struct {
+	Source           string
+	TriggerType      string
+	TriggerSubType   string
+	TriggerId        string
+	TriggerCreatedAt string
+	CampaignId       string
+	CampaignName     string
+	CampaignPrefix   string
+}
+
+func (c OrttoSyncContext) AsOrttoActivitiesAttributes() map[string]interface{} {
+	attributes := make(map[string]interface{})
+	attributes["str:cm:source"] = c.Source
+	attributes["str:cm:trigger-type"] = c.TriggerType
+	attributes["str:cm:trigger-subtype"] = c.TriggerSubType
+	attributes["str:cm:trigger-id"] = c.TriggerId
+	attributes["tme:cm:trigger-created-at"] = c.TriggerCreatedAt
+	attributes["str:cm:campaign-id"] = c.CampaignId
+	attributes["str:cm:campaign-name"] = c.CampaignName
+	attributes["str:cm:campaign-prefix"] = c.CampaignPrefix
+	return attributes
+}
+
+// OrttoRequest is the interface for all ortto-specific request types.
 // Each target (e.g., ortto-contacts, ortto-activities) has its own request type
 // that implements this interface.
-type TargetRequest interface {
-	Validate() error
+type OrttoRequest interface {
 	ItemCount() int                                    // Returns the number of items (contacts or activities)
 	IsOrttoContactsRequest() bool                      // Returns true if this is a contacts request
 	AsOrttoContactsRequest() *OrttoContactsRequest     // Returns self if contacts request, nil otherwise
@@ -18,38 +40,38 @@ type TargetRequest interface {
 	AsOrttoActivitiesRequest() *OrttoActivitiesRequest // Returns self if activities request, nil otherwise
 }
 
-// TargetResponse is the interface for all target-specific response types.
+// OrttoResponse is the interface for all ortto-specific response types.
 // Each target has its own response type that implements this interface.
-type TargetResponse interface {
+type OrttoResponse interface {
 	IsSuccess() bool
 	GetError() error
 }
 
-// TargetMapper is the interface for mapping Raisely data to target-specific formats.
+// OrttoMapper is the interface for mapping Raisely data to ortto-specific formats.
 // Implementations exist for each integration target (e.g., OrttoContactsMapper, OrttoActivitiesMapper).
-type TargetMapper interface {
-	MapFundraisingPage(campaign *FundraisingCampaign, p2pregistrationid string, ctx context.Context) (TargetRequest, error)
-	MapTeamFundraisingPage(campaign *FundraisingCampaign, p2pteamid string, ctx context.Context) (TargetRequest, error)
-	MapTrackingData(data map[string]string, ctx context.Context) (TargetRequest, error)
-	SendRequest(req TargetRequest, ctx context.Context) (TargetResponse, error)
+type OrttoMapper interface {
+	MapFundraisingPage(campaign *FundraisingCampaign, p2pregistrationid string, ctx context.Context) (OrttoRequest, error)
+	MapTeamFundraisingPage(campaign *FundraisingCampaign, p2pteamid string, ctx context.Context) (OrttoRequest, error)
+	MapTrackingData(data map[string]string, ctx context.Context) (OrttoRequest, error)
+	SendRequest(req OrttoRequest, ctx context.Context) (OrttoResponse, error)
 }
 
-// NewTargetMapper creates a TargetMapper based on the target specified in the config.
+// NewOrttoMapper creates a OrttoMapper based on the target specified in the config.
 // If target is empty or "ortto-contacts", it returns an OrttoContactsMapper.
 // If target is "ortto-activities", it returns an OrttoActivitiesMapper.
-func NewTargetMapper(config Config, campaign string, recordRequests bool) TargetMapper {
+func NewOrttoMapper(config Config, orttoctx OrttoSyncContext, recordRequests bool) OrttoMapper {
 	mapper := RaiselyMapper{
-		RaiselyFetcher: RaiselyFetcher{
-			Campaign:       campaign,
+		RaiselyFetcherAndUpdater: RaiselyFetcherAndUpdater{
+			Campaign:       orttoctx.CampaignId,
 			Config:         config,
 			RecordRequests: recordRequests,
 		},
 	}
 	switch config.Target {
 	case "ortto-activities":
-		return &OrttoActivitiesMapper{RaiselyMapper: mapper}
+		return &OrttoActivitiesMapper{RaiselyMapper: mapper, OrttoSyncContext: orttoctx}
 	default: // "", "ortto-contacts"
-		return &OrttoContactsMapper{RaiselyMapper: mapper}
+		return &OrttoContactsMapper{RaiselyMapper: mapper, OrttoSyncContext: orttoctx}
 	}
 }
 
@@ -85,14 +107,6 @@ type OrttoContactsRequest struct {
 	MergeBy       []string       `json:"merge_by"`
 	MergeStrategy uint8          `json:"merge_strategy"`
 	FindStrategy  uint8          `json:"find_strategy"`
-}
-
-// Validate checks that the request has at least one contact.
-func (r OrttoContactsRequest) Validate() error {
-	if len(r.Contacts) == 0 {
-		return errors.New("no contacts to send")
-	}
-	return nil
 }
 
 // ItemCount returns the number of contacts in the request.
@@ -147,19 +161,6 @@ func (a *OrttoActivity) SetField(key string, value interface{}) { a.Fields[key] 
 
 // DeleteField deletes a field from the activity.
 func (a *OrttoActivity) DeleteField(key string) { delete(a.Fields, key) }
-
-// Validate checks that the request has at least one activity and that each activity has an activity_id.
-func (r OrttoActivitiesRequest) Validate() error {
-	if len(r.Activities) == 0 {
-		return errors.New("no activities to send")
-	}
-	for _, a := range r.Activities {
-		if a.ActivityID == "" {
-			return errors.New("activity_id is required")
-		}
-	}
-	return nil
-}
 
 // ItemCount returns the number of activities in the request.
 func (r OrttoActivitiesRequest) ItemCount() int {

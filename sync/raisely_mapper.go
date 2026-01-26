@@ -7,9 +7,9 @@ import (
 )
 
 // RaiselyMapper handles mapping Raisely data to target formats.
-// It embeds RaiselyFetcher to provide both fetching and mapping capabilities.
+// It embeds RaiselyFetcherAndUpdater to provide both fetching and mapping capabilities.
 type RaiselyMapper struct {
-	RaiselyFetcher
+	RaiselyFetcherAndUpdater
 }
 
 // MapFundraiserFields maps builtin and custom fundraiser fields from source to destination.
@@ -36,7 +36,7 @@ func (m *RaiselyMapper) ApplyFundraiserTransforms(destination Mappable, campaign
 		Campaign:          campaign,
 		Destination:       destination,
 		Ctx:               ctx,
-		DonationsFetcher:  &m.RaiselyFetcher,
+		DonationsFetcher:  &m.RaiselyFetcherAndUpdater,
 		SkipDonationCheck: skipDonationCheck,
 	})
 }
