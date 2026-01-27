@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"sort"
 	"strings"
 
 	"github.com/carlmjohnson/requests"
@@ -24,7 +25,7 @@ type OrttoActivitiesMapper struct {
 // Person fields are:
 // 1. All builtin fields (contain "::" pattern, e.g., "str::email")
 // 2. The configured OrttoFundraiserMergeField (used to merge contacts in Ortto)
-// All other fields are activity-only attributes.
+// 3. The fields "str:cm:address" and "str:cm:address2" are also considered person fields.
 func (o OrttoActivitiesMapper) IsPersonField(fieldID string) bool {
 	// Builtin fields (e.g., str::email) are always person fields
 	if strings.Contains(fieldID, "::") {
@@ -32,6 +33,10 @@ func (o OrttoActivitiesMapper) IsPersonField(fieldID string) bool {
 	}
 	// The configured merge field is also a person field
 	if fieldID == o.Config.API.Ids.OrttoFundraiserMergeField {
+		return true
+	}
+	// Address fields are also person fields
+	if fieldID == "str:cm:address" || fieldID == "str:cm:address-2" {
 		return true
 	}
 	return false
@@ -65,23 +70,36 @@ func (o OrttoActivitiesMapper) PersonFieldIDs() []string {
 	return result
 }
 
-// SeparateFieldsAndAttributes moves non-person fields from Fields to Attributes.
+// SeparateFieldsAndAttributesAndSortAttributes moves person fields from Attributes to Fields.
 // This should be called after all field mapping and transforms are complete.
+// Mappable writes all mapped data to activity.Attributes initially.
+// This method moves person fields from Attributes to Fields.
 // According to the Ortto Activities API:
 // - fields: Person/contact field data (updates the contact record)
 // - attributes: Activity-specific field data (stored only on the activity)
-func (o OrttoActivitiesMapper) SeparateFieldsAndAttributes(activity *OrttoActivity) {
-	if activity.Attributes == nil {
-		activity.Attributes = make(map[string]interface{})
-	}
+func (o OrttoActivitiesMapper) SeparateFieldsAndAttributesAndSortAttributes(activity *OrttoActivity) {
 
-	// Move non-person fields from Fields to Attributes
-	for fieldID, value := range activity.Fields {
-		if !o.IsPersonField(fieldID) {
-			activity.Attributes[fieldID] = value
-			delete(activity.Fields, fieldID)
+	// Move person fields from Attributes to Fields
+	for fieldID, value := range activity.Attributes {
+		if o.IsPersonField(fieldID) {
+			activity.Fields[fieldID] = value
+			delete(activity.Attributes, fieldID)
 		}
 	}
+
+	// Try and add the cdp-fields attribute - used to log the person fields
+	flattenedPersonFields := make(map[string]interface{})
+	for k, v := range activity.Fields {
+		if nestedMap, ok := v.(map[string]string); ok {
+			for nk, nv := range nestedMap {
+				flattenedPersonFields[fmt.Sprintf("%s.%s", k, nk)] = nv
+			}
+		} else {
+			flattenedPersonFields[k] = v
+		}
+	}
+	activity.Attributes["obj:cm:cdp-fields"] = flattenedPersonFields
+
 }
 
 func (o OrttoActivitiesMapper) OrttoAPIBuilder() *requests.Builder {
@@ -98,7 +116,7 @@ func (o *OrttoActivitiesMapper) MapFundraisingPage(campaign *FundraisingCampaign
 
 	orttoRequest := OrttoActivitiesRequest{
 		Async:         false,
-		MergeBy:       []string{fmt.Sprintf("str:cm:%s-p2p-registration-id", o.Config.CampaignPrefix), "str::email"},
+		MergeBy:       []string{o.Config.API.Ids.OrttoFundraiserMergeField, "str::email"},
 		MergeStrategy: 2, // Overwrite existing
 	}
 
@@ -127,7 +145,7 @@ func (o *OrttoActivitiesMapper) MapFundraisingPage(campaign *FundraisingCampaign
 	o.ClearTeamFields(&activity)
 
 	// Separate person fields (Fields) from activity attributes (Attributes)
-	o.SeparateFieldsAndAttributes(&activity)
+	o.SeparateFieldsAndAttributesAndSortAttributes(&activity)
 
 	orttoRequest.Activities = append(orttoRequest.Activities, activity)
 
@@ -138,7 +156,7 @@ func (o *OrttoActivitiesMapper) MapFundraisingPage(campaign *FundraisingCampaign
 func (o *OrttoActivitiesMapper) MapTeamFundraisingPage(campaign *FundraisingCampaign, p2pteamid string, ctx context.Context) (OrttoRequest, error) {
 	result := OrttoActivitiesRequest{
 		Async:         false,
-		MergeBy:       []string{fmt.Sprintf("str:cm:%s-p2p-registration-id", o.Config.CampaignPrefix), "str::email"},
+		MergeBy:       []string{o.Config.API.Ids.OrttoFundraiserMergeField, "str::email"},
 		MergeStrategy: 2, // Overwrite existing
 	}
 
@@ -175,7 +193,7 @@ func (o *OrttoActivitiesMapper) MapTeamFundraisingPage(campaign *FundraisingCamp
 		}
 
 		// Separate person fields (Fields) from activity attributes (Attributes)
-		o.SeparateFieldsAndAttributes(&activity)
+		o.SeparateFieldsAndAttributesAndSortAttributes(&activity)
 
 		result.Activities = append(result.Activities, activity)
 	}
@@ -235,9 +253,8 @@ func (o *OrttoActivitiesMapper) MapTrackingData(data map[string]string, ctx cont
 	}
 
 	// Separate person fields (Fields) from activity attributes (Attributes)
-	o.SeparateFieldsAndAttributes(&activity)
+	o.SeparateFieldsAndAttributesAndSortAttributes(&activity)
 
-	// For activities, we always create the activity (unlike contacts where we check for existing)
 	result.Activities = append(result.Activities, activity)
 
 	return result, nil
@@ -348,44 +365,95 @@ type ActivityDefinitionResponse struct {
 }
 
 // BuildActivityDefinitionRequest creates an activity definition request from the config field mappings.
-func (o OrttoActivitiesMapper) BuildActivityDefinitionRequest(name string) ActivityDefinitionRequest {
+// The activity name is derived from Config.CampaignPrefix.
+func (o OrttoActivitiesMapper) BuildActivityDefinitionRequest(trackingconfig Config) ActivityDefinitionRequest {
+	name := o.Config.CampaignPrefix
 	request := ActivityDefinitionRequest{
 		Name:                 name,
-		IconID:               "user-add",
+		IconID:               "reload-illustration-icon",
 		TrackConversionValue: false,
 		Touch:                true,
 		Filterable:           true,
 		VisibleInFeeds:       true,
 		DisplayStyle: ActivityDefinitionStyle{
 			Type:  "activity",
-			Title: name,
+			Title: fmt.Sprintf("%s Custom Activity Stream", name),
 		},
 		Attributes: []ActivityDefinitionAttribute{},
 	}
 
 	personFieldIDs := o.PersonFieldIDs()
 
-	// Add context attributes
-	for fieldID := range o.OrttoSyncContext.AsOrttoActivitiesAttributes() {
-		displayType := "text"
-		if strings.HasPrefix(fieldID, "tme:") {
-			displayType = "date"
-		}
-		request.Attributes = append(request.Attributes, ActivityDefinitionAttribute{
-			Name:        o.extractFieldName(fieldID),
-			DisplayType: displayType,
-			FieldID:     o.resolveFieldID(fieldID, personFieldIDs),
-		})
-	}
+	// Add sync-context
+	request.Attributes = append(request.Attributes, ActivityDefinitionAttribute{
+		Name:        "sync-context",
+		DisplayType: "object",
+		FieldID:     "do-not-map",
+	})
 
-	// Extract attributes from fundraiser field mappings (builtin)
-	o.extractFieldMappings(&request.Attributes, o.Config.FundraiserFieldMappings.Builtin, personFieldIDs)
+	// NOTE: We do not add attribute for person fields like First name, Last name and Email.
+	// Person fields can be sent with the payload and you do not need to add attributes for these.
+	// You can pass these into the create activity call along with the person to either automatically
+	// create people to go with the activity, or update existing people with the new data.
+	// See https://help.ortto.com/a-233-custom-activities-guide
 
-	// Extract attributes from fundraiser field mappings (custom)
+	// We add cdp-fields object to log the person fields instead
+	request.Attributes = append(request.Attributes, ActivityDefinitionAttribute{
+		Name:        "cdp-fields",
+		DisplayType: "object",
+		FieldID:     "do-not-map",
+	})
+
+	// Extract attributes from custom fundraiser field mappings
 	o.extractFieldMappings(&request.Attributes, o.Config.FundraiserFieldMappings.Custom, personFieldIDs)
 
-	// Extract attributes from team field mappings (custom)
+	// Extract attributes from custom team field mappings
 	o.extractFieldMappings(&request.Attributes, o.Config.TeamFieldMappings.Custom, personFieldIDs)
+
+	// Merge in any extra custom fields from trackingconfig (not already included)
+	trackingAttributes := []ActivityDefinitionAttribute{}
+	o.extractFieldMappings(&trackingAttributes, trackingconfig.FundraiserFieldMappings.Custom, personFieldIDs)
+	o.extractFieldMappings(&trackingAttributes, trackingconfig.TeamFieldMappings.Custom, personFieldIDs)
+	for _, attr := range trackingAttributes {
+		found := false // Check if field is already in attributes
+		for _, existingAttr := range request.Attributes {
+			if existingAttr.Name == attr.Name {
+				found = true
+				break
+			}
+		}
+		if !found {
+			request.Attributes = append(request.Attributes, attr)
+		}
+	}
+
+	// Remove  any custom person fields from activity attributes
+	// as these should only be mapped to the person/contact record
+	// and not stored as activity attributes - see note above
+	for i := len(request.Attributes) - 1; i >= 0; i-- {
+		if o.IsPersonField(request.Attributes[i].FieldID) {
+			// Remove the attribute
+			request.Attributes = append(request.Attributes[:i], request.Attributes[i+1:]...)
+		}
+
+	}
+
+	// Sort attributes alphabetically by name, with sync-context first and cdp-fields last
+	sort.Slice(request.Attributes, func(i, j int) bool {
+		ni := request.Attributes[i].Name
+		nj := request.Attributes[j].Name
+		if ni == "sync-context" {
+			return true
+		} else if nj == "sync-context" {
+			return false
+		}
+		if ni == "cdp-fields" {
+			return false
+		} else if nj == "cdp-fields" {
+			return true
+		}
+		return ni < nj
+	})
 
 	return request
 }
@@ -393,11 +461,18 @@ func (o OrttoActivitiesMapper) BuildActivityDefinitionRequest(name string) Activ
 // extractFieldMappings extracts attributes from FieldMappings
 func (o OrttoActivitiesMapper) extractFieldMappings(attributes *[]ActivityDefinitionAttribute, mappings FieldMappings, personFieldIDs []string) {
 
-	// Strings -> text
+	// Strings -> text (also map email and links)
 	for fieldID := range mappings.Strings {
+		stringDisplayType := "text"
+		if fieldID == "str::email" {
+			stringDisplayType = "email"
+		}
+		if strings.HasSuffix(fieldID, "-url") {
+			stringDisplayType = "link"
+		}
 		*attributes = append(*attributes, ActivityDefinitionAttribute{
 			Name:        o.extractFieldName(fieldID),
-			DisplayType: "text",
+			DisplayType: stringDisplayType,
 			FieldID:     o.resolveFieldID(fieldID, personFieldIDs),
 		})
 	}
@@ -433,16 +508,16 @@ func (o OrttoActivitiesMapper) extractFieldMappings(attributes *[]ActivityDefini
 	for fieldID := range mappings.Booleans {
 		*attributes = append(*attributes, ActivityDefinitionAttribute{
 			Name:        o.extractFieldName(fieldID),
-			DisplayType: "boolean",
+			DisplayType: "bool",
 			FieldID:     o.resolveFieldID(fieldID, personFieldIDs),
 		})
 	}
 
-	// Timestamps -> date
+	// Timestamps -> time
 	for fieldID := range mappings.Timestamps {
 		*attributes = append(*attributes, ActivityDefinitionAttribute{
 			Name:        o.extractFieldName(fieldID),
-			DisplayType: "date",
+			DisplayType: "time",
 			FieldID:     o.resolveFieldID(fieldID, personFieldIDs),
 		})
 	}
@@ -456,14 +531,15 @@ func (o OrttoActivitiesMapper) extractFieldMappings(attributes *[]ActivityDefini
 		})
 	}
 
-	// Geos -> geo
+	// Geos -> text
 	for fieldID := range mappings.Geos {
 		*attributes = append(*attributes, ActivityDefinitionAttribute{
 			Name:        o.extractFieldName(fieldID),
-			DisplayType: "geo",
+			DisplayType: "text",
 			FieldID:     o.resolveFieldID(fieldID, personFieldIDs),
 		})
 	}
+
 }
 
 // resolveFieldID returns the field_id for the activity attribute.
@@ -490,8 +566,8 @@ func (o OrttoActivitiesMapper) extractFieldName(fieldID string) string {
 }
 
 // CreateActivityDefinition creates an activity definition in Ortto.
-func (o *OrttoActivitiesMapper) CreateActivityDefinition(ctx context.Context, name string) (ActivityDefinitionResponse, error) {
-	request := o.BuildActivityDefinitionRequest(name)
+func (o *OrttoActivitiesMapper) CreateActivityDefinition(ctx context.Context, trackingconfig Config) (ActivityDefinitionResponse, error) {
+	request := o.BuildActivityDefinitionRequest(trackingconfig)
 
 	var response ActivityDefinitionResponse
 

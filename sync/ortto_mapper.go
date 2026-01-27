@@ -2,8 +2,70 @@ package sync
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"sort"
+	"strings"
+	"time"
 )
+
+// OrttoAttributes is a map[string]interface{} that marshals to JSON with keys
+// sorted alphabetically by the name portion of the key (the last segment after ':')
+// with some special handling for obj:cm:sync-context to ensure it appears first
+// and obj:cdp-fields to ensure it appears last.
+type OrttoAttributes map[string]interface{}
+
+// extractName returns the name portion of an Ortto field key.
+// e.g., "str:cm:shirt-size" -> "shirt-size"
+func extractName(key string) string {
+	parts := strings.Split(key, ":")
+	if len(parts) >= 1 {
+		return parts[len(parts)-1]
+	}
+	return key
+}
+
+func (a OrttoAttributes) MarshalJSON() ([]byte, error) {
+	keys := make([]string, 0, len(a))
+	for k := range a {
+		keys = append(keys, k)
+	}
+	sort.Slice(keys, func(i, j int) bool {
+		// if key is "obj:cm:sync-context", make it sort first
+		if keys[i] == "obj:cm:sync-context" {
+			return true
+		} else if keys[j] == "obj:cm:sync-context" {
+			return false
+		}
+		// if key is "obj:cdp-fields", make it sort last
+		if keys[i] == "obj:cdp-fields" {
+			return false
+		} else if keys[j] == "obj:cdp-fields" {
+			return true
+		}
+		return extractName(keys[i]) < extractName(keys[j])
+	})
+
+	buf := []byte{'{'}
+	for i, k := range keys {
+		if i > 0 {
+			buf = append(buf, ',')
+		}
+		keyJSON, err := json.Marshal(k)
+		if err != nil {
+			return nil, err
+		}
+		valJSON, err := json.Marshal(a[k])
+		if err != nil {
+			return nil, err
+		}
+		buf = append(buf, keyJSON...)
+		buf = append(buf, ':')
+		buf = append(buf, valJSON...)
+	}
+	buf = append(buf, '}')
+	return buf, nil
+}
 
 type OrttoSyncContext struct {
 	Source           string
@@ -16,17 +78,35 @@ type OrttoSyncContext struct {
 	CampaignPrefix   string
 }
 
-func (c OrttoSyncContext) AsOrttoActivitiesAttributes() map[string]interface{} {
-	attributes := make(map[string]interface{})
-	attributes["str:cm:source"] = c.Source
-	attributes["str:cm:trigger-type"] = c.TriggerType
-	attributes["str:cm:trigger-subtype"] = c.TriggerSubType
-	attributes["str:cm:trigger-id"] = c.TriggerId
-	attributes["tme:cm:trigger-created-at"] = c.TriggerCreatedAt
-	attributes["str:cm:campaign-id"] = c.CampaignId
-	attributes["str:cm:campaign-name"] = c.CampaignName
-	attributes["str:cm:campaign-prefix"] = c.CampaignPrefix
-	return attributes
+func (c OrttoSyncContext) AsOrttoActivitiesAttributes() OrttoAttributes {
+	// Try and convert timestamps to RFC1123 (Mon, 02 Jan 2006 15:04:05 MST)
+	// as they are displayed as text when sent as an object
+	triggerCreatedAtFormatted := c.TriggerCreatedAt
+	if t, err := time.Parse(time.RFC3339, c.TriggerCreatedAt); err == nil {
+		triggerCreatedAtFormatted = t.Format(time.RFC1123)
+	}
+	attributes := struct {
+		Source           string `json:"Source"`
+		TriggerType      string `json:"Trigger-type"`
+		TriggerSubType   string `json:"Trigger-subtype"`
+		TriggerId        string `json:"Trigger-id"`
+		TriggerCreatedAt string `json:"Trigger-created-at"`
+		CampaignId       string `json:"Campaign-id"`
+		CampaignName     string `json:"Campaign-name"`
+		CampaignPrefix   string `json:"Campaign-prefix"`
+	}{
+		Source:           c.Source,
+		TriggerType:      c.TriggerType,
+		TriggerSubType:   c.TriggerSubType,
+		TriggerId:        c.TriggerId,
+		TriggerCreatedAt: triggerCreatedAtFormatted,
+		CampaignId:       c.CampaignId,
+		CampaignName:     c.CampaignName,
+		CampaignPrefix:   c.CampaignPrefix,
+	}
+	objectWrapper := make(OrttoAttributes)
+	objectWrapper["obj:cm:sync-context"] = attributes
+	return objectWrapper
 }
 
 // OrttoRequest is the interface for all ortto-specific request types.
@@ -145,7 +225,7 @@ type OrttoActivitiesRequest struct {
 // OrttoActivity represents a single activity in the Ortto Activities API.
 type OrttoActivity struct {
 	ActivityID string                 `json:"activity_id"`
-	Attributes map[string]interface{} `json:"attributes,omitempty"`
+	Attributes OrttoAttributes        `json:"attributes,omitempty"`
 	Fields     map[string]interface{} `json:"fields"`
 	Location   map[string]interface{} `json:"location,omitempty"`
 	PersonID   string                 `json:"person_id,omitempty"`
@@ -153,14 +233,16 @@ type OrttoActivity struct {
 	Key        string                 `json:"key,omitempty"`
 }
 
-// GetFields returns the activity's field map.
-func (a *OrttoActivity) GetFields() map[string]interface{} { return a.Fields }
+// GetFields returns the activity's attributes map.
+// For activities, Mappable operates on Attributes (activity-specific data).
+// Person fields are later moved to Fields by SeparateFieldsAndAttributesAndSortAttributes.
+func (a *OrttoActivity) GetFields() map[string]interface{} { return a.Attributes }
 
-// SetField sets a field on the activity.
-func (a *OrttoActivity) SetField(key string, value interface{}) { a.Fields[key] = value }
+// SetField sets a field on the activity's attributes.
+func (a *OrttoActivity) SetField(key string, value interface{}) { a.Attributes[key] = value }
 
-// DeleteField deletes a field from the activity.
-func (a *OrttoActivity) DeleteField(key string) { delete(a.Fields, key) }
+// DeleteField deletes a field from the activity's attributes.
+func (a *OrttoActivity) DeleteField(key string) { delete(a.Attributes, key) }
 
 // ItemCount returns the number of activities in the request.
 func (r OrttoActivitiesRequest) ItemCount() int {
