@@ -91,8 +91,8 @@ func (c OrttoSyncContext) AsOrttoActivitiesAttributes() OrttoAttributes {
 	attributes := struct {
 		Source           string `json:"Source"`
 		TriggerType      string `json:"Trigger-type"`
-		TriggerSubType   string `json:"Trigger-subtype"`
-		TriggerId        string `json:"Trigger-id"`
+		TriggerSubType   string `json:"Trigger-subtype,omitempty"`
+		TriggerId        string `json:"Trigger-id,omitempty"`
 		TriggerCreatedAt string `json:"Trigger-created-at"`
 		CampaignId       string `json:"Campaign-id"`
 		CampaignName     string `json:"Campaign-name"`
