@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net/http"
 	"strings"
 	"time"
 
@@ -24,7 +25,8 @@ type OrttoContactsMapper struct {
 
 func (o OrttoContactsMapper) OrttoAPIBuilder() *requests.Builder {
 	result := requests.
-		URL(o.Config.API.Endpoints.Ortto)
+		URL(o.Config.API.Endpoints.Ortto).
+		Client(&http.Client{Timeout: HTTPRequestTimeout})
 	if o.RecordRequests {
 		result = result.Transport(requests.Record(nil, fmt.Sprintf("pkg/testdata/.requests/%s/ortto-contacts", o.Campaign)))
 	}

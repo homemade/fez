@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net/http"
 	"sort"
 	"strings"
 
@@ -104,7 +105,8 @@ func (o OrttoActivitiesMapper) SeparateFieldsAndAttributesAndSortAttributes(acti
 
 func (o OrttoActivitiesMapper) OrttoAPIBuilder() *requests.Builder {
 	result := requests.
-		URL(o.Config.API.Endpoints.Ortto)
+		URL(o.Config.API.Endpoints.Ortto).
+		Client(&http.Client{Timeout: HTTPRequestTimeout})
 	if o.RecordRequests {
 		result = result.Transport(requests.Record(nil, fmt.Sprintf("pkg/testdata/.requests/%s/ortto-activities", o.Campaign)))
 	}

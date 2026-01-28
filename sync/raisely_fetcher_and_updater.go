@@ -454,7 +454,9 @@ func (r *RaiselyFetcherAndUpdater) RaiselyAPIKey() string {
 
 // RaiselyAPIBuilder returns a new requests.Builder configured for the Raisely API.
 func (r *RaiselyFetcherAndUpdater) RaiselyAPIBuilder() *requests.Builder {
-	apiBuilder := requests.URL("https://api.raisely.com")
+	apiBuilder := requests.
+		URL("https://api.raisely.com").
+		Client(&http.Client{Timeout: HTTPRequestTimeout})
 	if r.RecordRequests {
 		apiBuilder = apiBuilder.Transport(requests.Record(nil, fmt.Sprintf("pkg/testdata/.requests/%s/raisely", r.Campaign)))
 	}
