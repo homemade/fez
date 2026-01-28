@@ -254,9 +254,12 @@ func (o *OrttoActivitiesMapper) MapTrackingData(data map[string]string, ctx cont
 
 	o.MapFundraiserFields(source, &activity)
 
+	// Separate person fields (Fields) from activity attributes (Attributes)
+	o.SeparateFieldsAndAttributesAndSortAttributes(&activity)
+
 	email, emailExists := activity.Fields["str::email"].(string)
 	if !emailExists || email == "" {
-		return result, errors.New("missing required field in tracking data")
+		return result, errors.New("missing required str::email field in tracking data")
 	}
 
 	var existingContacts []OrttoContact
@@ -269,9 +272,6 @@ func (o *OrttoActivitiesMapper) MapTrackingData(data map[string]string, ctx cont
 		log.Println("Found existing fundraising page for this tracking data in ortto")
 		return result, nil
 	}
-
-	// Separate person fields (Fields) from activity attributes (Attributes)
-	o.SeparateFieldsAndAttributesAndSortAttributes(&activity)
 
 	result.Activities = append(result.Activities, activity)
 
