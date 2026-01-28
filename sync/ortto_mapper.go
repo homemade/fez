@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"sort"
 	"strings"
 	"time"
@@ -84,6 +85,8 @@ func (c OrttoSyncContext) AsOrttoActivitiesAttributes() OrttoAttributes {
 	triggerCreatedAtFormatted := c.TriggerCreatedAt
 	if t, err := time.Parse(time.RFC3339, c.TriggerCreatedAt); err == nil {
 		triggerCreatedAtFormatted = t.Format(time.RFC1123)
+	} else if c.TriggerCreatedAt != "" {
+		log.Printf("Warning: failed to parse TriggerCreatedAt %q as RFC3339: %v (using original value)", c.TriggerCreatedAt, err)
 	}
 	attributes := struct {
 		Source           string `json:"Source"`
