@@ -280,15 +280,19 @@ func (o *OrttoContactsMapper) ReconcileFundraisingPage(p2pregistrationid string,
 			// some fields need specific handling for comparison
 
 			if strings.HasPrefix(k, "geo:") { // Ortto adds an id field to geos (address fields)
-				delete(orttoValue.(map[string]interface{}), "id")
+				if geoMap, ok := orttoValue.(map[string]interface{}); ok {
+					delete(geoMap, "id")
+				}
 			}
 
 			if strings.HasPrefix(k, "tme:") { // Ortto returns timestamps in ISO 8601 format
-				t, err := time.Parse(time.RFC3339, sourceValue.(string))
-				if err != nil {
-					return result, err
+				if sourceStr, ok := sourceValue.(string); ok {
+					t, err := time.Parse(time.RFC3339, sourceStr)
+					if err != nil {
+						return result, err
+					}
+					sourceValue = t.Format(time.RFC3339)
 				}
-				sourceValue = t.Format(time.RFC3339)
 			}
 
 			expected, err := json.Marshal(sourceValue)

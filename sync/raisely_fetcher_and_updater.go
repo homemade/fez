@@ -23,7 +23,10 @@ const (
 	FundraisingProfileDonationsLimit               = "1000"
 )
 
-var cachedFundraisingCampaign *FundraisingCampaign
+var (
+	cachedFundraisingCampaign   *FundraisingCampaign
+	cachedFundraisingCampaignMu gosync.RWMutex
+)
 
 type fetchRaiselyDataParams struct {
 	RaiselyAPIKey     string
@@ -58,7 +61,12 @@ func (s Source) BoolForPath(path string) (bool, bool) {
 }
 
 func (s Source) Data() map[string]interface{} {
-	return s.data.Value().(map[string]interface{})
+	if v := s.data.Value(); v != nil {
+		if m, ok := v.(map[string]interface{}); ok {
+			return m
+		}
+	}
+	return nil
 }
 
 type FundraisingTeam struct {
@@ -404,18 +412,32 @@ func (r *RaiselyFetcherAndUpdater) FetchFundraisingCampaign(p2pid string, ctx co
 }
 
 // CachedFundraisingCampaign fetches and caches the fundraising campaign data from Raisely.
+// Thread-safe: uses mutex to protect concurrent access to the cache.
 func (r *RaiselyFetcherAndUpdater) CachedFundraisingCampaign(p2pid string, refresh bool, ctx context.Context) (*FundraisingCampaign, error) {
-	if cachedFundraisingCampaign == nil || refresh {
+	// Check cache with read lock first
+	cachedFundraisingCampaignMu.RLock()
+	cached := cachedFundraisingCampaign
+	cachedFundraisingCampaignMu.RUnlock()
+
+	if cached == nil || refresh {
 		fundraisingCampaign, err := r.FetchFundraisingCampaign(p2pid, ctx)
 		if err == nil {
+			cachedFundraisingCampaignMu.Lock()
 			cachedFundraisingCampaign = fundraisingCampaign
+			cached = fundraisingCampaign
+			cachedFundraisingCampaignMu.Unlock()
 		}
-		if err != nil && cachedFundraisingCampaign == nil {
-			return nil, err
+		if err != nil {
+			cachedFundraisingCampaignMu.RLock()
+			cached = cachedFundraisingCampaign
+			cachedFundraisingCampaignMu.RUnlock()
+			if cached == nil {
+				return nil, err
+			}
 		}
 	}
 
-	return cachedFundraisingCampaign, nil
+	return cached, nil
 }
 
 // FundraiserData holds the fetched data for a single fundraiser.

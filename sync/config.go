@@ -12,7 +12,7 @@ import (
 type Config struct {
 	// Target identifies the integration target (e.g., "", "ortto-contacts", "ortto-activities").
 	// Empty string indicates legacy files which default to ortto-contacts behavior.
-	Target                  string
+	Target                  string // NOTE: Set from the mapping file name suffix NOT the YAML content
 	API                     APISettings
 	CampaignPrefix          string
 	FundraiserFieldMappings struct {
