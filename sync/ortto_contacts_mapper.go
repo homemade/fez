@@ -100,7 +100,7 @@ func (o *OrttoContactsMapper) MapTeamFundraisingPage(campaign *FundraisingCampai
 }
 
 // MapTrackingData maps tracking form data to an Ortto contacts request.
-func (o *OrttoContactsMapper) MapTrackingData(data map[string]string, ctx context.Context) (OrttoRequest, error) {
+func (o *OrttoContactsMapper) MapTrackingData(campaign *FundraisingCampaign, data map[string]string, ctx context.Context) (OrttoRequest, error) {
 
 	result := OrttoContactsRequest{
 		Async:         false,
@@ -125,6 +125,9 @@ func (o *OrttoContactsMapper) MapTrackingData(data map[string]string, ctx contex
 	var contact OrttoContact
 	contact.Fields = make(map[string]interface{})
 	o.MapFundraiserFields(source, &contact)
+	if err = o.ApplyFundraiserTransforms(&contact, campaign, ctx, false); err != nil {
+		return result, err
+	}
 
 	email, emailExists := contact.Fields["str::email"].(string)
 	if !emailExists || email == "" {

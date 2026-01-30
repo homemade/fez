@@ -225,7 +225,7 @@ func (o *OrttoActivitiesMapper) MapTeamFundraisingPage(campaign *FundraisingCamp
 }
 
 // MapTrackingData maps tracking form data to an Ortto activities request.
-func (o *OrttoActivitiesMapper) MapTrackingData(data map[string]string, ctx context.Context) (OrttoRequest, error) {
+func (o *OrttoActivitiesMapper) MapTrackingData(campaign *FundraisingCampaign, data map[string]string, ctx context.Context) (OrttoRequest, error) {
 
 	var result OrttoActivitiesRequest
 
@@ -263,6 +263,9 @@ func (o *OrttoActivitiesMapper) MapTrackingData(data map[string]string, ctx cont
 	}
 
 	o.MapFundraiserFields(source, &activity)
+	if err := o.ApplyFundraiserTransforms(&activity, campaign, ctx, false); err != nil {
+		return result, err
+	}
 
 	// Separate person fields (Fields) from activity attributes (Attributes)
 	o.SeparateFieldsAndAttributesAndSortAttributes(&activity)

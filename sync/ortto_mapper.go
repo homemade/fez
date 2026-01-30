@@ -132,7 +132,7 @@ type OrttoResponse interface {
 type OrttoMapper interface {
 	MapFundraisingPage(campaign *FundraisingCampaign, p2pregistrationid string, ctx context.Context) (OrttoRequest, error)
 	MapTeamFundraisingPage(campaign *FundraisingCampaign, p2pteamid string, ctx context.Context) (OrttoRequest, error)
-	MapTrackingData(data map[string]string, ctx context.Context) (OrttoRequest, error)
+	MapTrackingData(campaign *FundraisingCampaign, data map[string]string, ctx context.Context) (OrttoRequest, error)
 	SendRequest(req OrttoRequest, ctx context.Context) (OrttoResponse, error)
 }
 

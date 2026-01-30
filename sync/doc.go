@@ -229,6 +229,10 @@ func formatTransformNote(transform string) string {
 		return "Uses @now transform"
 	case strings.HasPrefix(transform, "onlyIfSelfDonatedDuringRegistrationWindow:"):
 		return "Only syncs if self-donated during registration window"
+	case transform == "toLower":
+		return "Converts to lowercase"
+	case transform == "toUpper":
+		return "Converts to uppercase"
 	default:
 		// Return the transform as-is if not recognized
 		return fmt.Sprintf("Transform: %s", transform)
