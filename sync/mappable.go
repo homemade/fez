@@ -12,6 +12,12 @@ type Mappable interface {
 func MapFields(mappings FieldMappings, source Source, destination Mappable) {
 	if mappings.Strings != nil {
 		for field, path := range mappings.Strings {
+			// handle static strings as well as dynamic paths
+			// escaping the value in backticks allows us to distinguish between the two
+			if len(path) >= 2 && path[0] == '`' && path[len(path)-1] == '`' {
+				destination.SetField(field, path[1:len(path)-1])
+				continue
+			}
 			if result, exists := source.StringForPath(path); exists {
 				destination.SetField(field, result)
 			} else {
