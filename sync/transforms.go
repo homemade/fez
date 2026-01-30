@@ -49,7 +49,7 @@ func ApplyFundraiserFieldTransforms(params ApplyFundraiserFieldTransformsParams)
 
 		switch function {
 		case "blankIfDefault":
-			log.Println("Warning: modifier 'blankIfDefault' is deprecated please switch to using 'onlyIfNotDefault' instead")
+			log.Println("Warning: transform 'blankIfDefault' is deprecated please switch to using 'onlyIfNotDefault' instead")
 			if fieldValue, ok := fields[field].(string); ok {
 				for _, defaultObject := range params.Campaign.FundraisingPageDefaults {
 					if arg == defaultObject.Label && fieldValue == defaultObject.Value {
@@ -115,6 +115,16 @@ func ApplyFundraiserFieldTransforms(params ApplyFundraiserFieldTransformsParams)
 			}
 			// default to removing the field
 			params.Destination.DeleteField(field)
+
+		case "toUpper":
+			if fieldValue, ok := fields[field].(string); ok {
+				params.Destination.SetField(field, strings.ToUpper(fieldValue))
+			}
+
+		case "toLower":
+			if fieldValue, ok := fields[field].(string); ok {
+				params.Destination.SetField(field, strings.ToLower(fieldValue))
+			}
 
 		default:
 			return fmt.Errorf("unsupported transform: %s", transform)
