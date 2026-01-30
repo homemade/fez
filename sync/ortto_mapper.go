@@ -76,7 +76,6 @@ type OrttoSyncContext struct {
 	TriggerCreatedAt string
 	CampaignId       string
 	CampaignName     string
-	CampaignPrefix   string
 }
 
 func (c OrttoSyncContext) AsOrttoActivitiesAttributes() OrttoAttributes {
@@ -96,7 +95,6 @@ func (c OrttoSyncContext) AsOrttoActivitiesAttributes() OrttoAttributes {
 		TriggerCreatedAt string `json:"Trigger-created-at"`
 		CampaignId       string `json:"Campaign-id"`
 		CampaignName     string `json:"Campaign-name"`
-		CampaignPrefix   string `json:"Campaign-prefix"`
 	}{
 		Source:           c.Source,
 		TriggerType:      c.TriggerType,
@@ -105,7 +103,6 @@ func (c OrttoSyncContext) AsOrttoActivitiesAttributes() OrttoAttributes {
 		TriggerCreatedAt: triggerCreatedAtFormatted,
 		CampaignId:       c.CampaignId,
 		CampaignName:     c.CampaignName,
-		CampaignPrefix:   c.CampaignPrefix,
 	}
 	objectWrapper := make(OrttoAttributes)
 	objectWrapper["obj:cm:sync-context"] = attributes
@@ -234,6 +231,34 @@ type OrttoActivity struct {
 	PersonID   string                 `json:"person_id,omitempty"`
 	Created    string                 `json:"created,omitempty"`
 	Key        string                 `json:"key,omitempty"`
+}
+
+func (a OrttoActivity) TakeSnapshot(field string) {
+	// Snapshot field is an object containing all activity attributes
+	// excluding the special "obj:cm:sync-context" and "obj:cm:cdp-fields"
+	removeOrttoMetaPrefix := func(s string) string {
+		_, afterFirst, foundFirst := strings.Cut(s, ":")
+		if foundFirst {
+			_, afterSecond, foundSecond := strings.Cut(afterFirst, ":")
+			if foundSecond {
+				return afterSecond
+			}
+			return afterFirst
+		}
+		return s
+	}
+	snapshot := make(map[string]interface{})
+	for k, v := range a.Attributes {
+		if k == "obj:cm:sync-context" || k == "obj:cm:cdp-fields" {
+			continue
+		}
+		// remove nil fields
+		if v == nil {
+			continue
+		}
+		snapshot[removeOrttoMetaPrefix(k)] = v
+	}
+	a.Fields[field] = snapshot
 }
 
 // GetFields returns the activity's attributes map.

@@ -36,9 +36,10 @@ type APISettings struct {
 	}
 	// Settings contains extra API values needed for syncing.
 	Settings struct {
-		OrttoActivityName         string `yaml:"orttoActivityName"`         // Required if Target is "ortto-activities" (Ortto Activities API)
-		OrttoActivityId           string `yaml:"orttoActivityId"`           // Required if Target is "ortto-activities" (Ortto Activities API)
-		OrttoFundraiserMergeField string `yaml:"orttoFundraiserMergeField"` // Required if Target is "ortto-activities" (Ortto Activities API)
+		OrttoActivityName            string `yaml:"orttoActivityName"`            // Required if Target is "ortto-activities" (Ortto Activities API)
+		OrttoActivityId              string `yaml:"orttoActivityId"`              // Required if Target is "ortto-activities" (Ortto Activities API)
+		OrttoFundraiserSnapshotField string `yaml:"orttoFundraiserSnapshotField"` // Required if Target is "ortto-activities" (Ortto Activities API)
+		OrttoFundraiserMergeField    string `yaml:"orttoFundraiserMergeField"`    // Required if Target is "ortto-activities" (Ortto Activities API)
 	}
 	Endpoints struct {
 		Ortto string

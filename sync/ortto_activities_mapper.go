@@ -36,6 +36,10 @@ func (o OrttoActivitiesMapper) IsPersonField(fieldID string) bool {
 	if fieldID == o.Config.API.Settings.OrttoFundraiserMergeField {
 		return true
 	}
+	// The configured snapshot field is also a person field
+	if fieldID == o.Config.API.Settings.OrttoFundraiserSnapshotField {
+		return true
+	}
 	// Address fields are also person fields
 	if fieldID == "str:cm:address" || fieldID == "str:cm:address-2" {
 		return true
@@ -154,6 +158,9 @@ func (o *OrttoActivitiesMapper) MapFundraisingPage(campaign *FundraisingCampaign
 	// Separate person fields (Fields) from activity attributes (Attributes)
 	o.SeparateFieldsAndAttributesAndSortAttributes(&activity)
 
+	// Add fundraiser snapshot field
+	activity.TakeSnapshot(o.Config.API.Settings.OrttoFundraiserSnapshotField)
+
 	orttoRequest.Activities = append(orttoRequest.Activities, activity)
 
 	return orttoRequest, nil
@@ -207,6 +214,9 @@ func (o *OrttoActivitiesMapper) MapTeamFundraisingPage(campaign *FundraisingCamp
 
 		// Separate person fields (Fields) from activity attributes (Attributes)
 		o.SeparateFieldsAndAttributesAndSortAttributes(&activity)
+
+		// Add fundraiser snapshot field
+		activity.TakeSnapshot(o.Config.API.Settings.OrttoFundraiserSnapshotField)
 
 		result.Activities = append(result.Activities, activity)
 	}
@@ -624,6 +634,10 @@ func (o *OrttoActivitiesMapper) CheckOrttoCustomFields(statusprocessing string, 
 	orttoTypes := make(map[string]string)
 	result[o.Config.API.Settings.OrttoFundraiserMergeField] = statusprocessing
 	orttoTypes[o.Config.API.Settings.OrttoFundraiserMergeField] = "Text" // TODO determine type from field
+	if o.Config.API.Settings.OrttoFundraiserSnapshotField != "" {
+		result[o.Config.API.Settings.OrttoFundraiserSnapshotField] = statusprocessing
+		orttoTypes[o.Config.API.Settings.OrttoFundraiserSnapshotField] = "Object" // TODO determine type from field
+	}
 
 	response := struct {
 		Fields []struct {
