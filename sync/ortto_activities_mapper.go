@@ -158,8 +158,10 @@ func (o *OrttoActivitiesMapper) MapFundraisingPage(campaign *FundraisingCampaign
 	// Separate person fields (Fields) from activity attributes (Attributes)
 	o.SeparateFieldsAndAttributesAndSortAttributes(&activity)
 
-	// Add fundraiser snapshot field
-	activity.TakeSnapshot(o.Config.API.Settings.OrttoFundraiserSnapshotField)
+	// Optionally add a fundraiser snapshot field
+	if o.Config.API.Settings.OrttoFundraiserSnapshotField != "" {
+		activity.TakeSnapshot(o.Config.API.Settings.OrttoFundraiserSnapshotField)
+	}
 
 	orttoRequest.Activities = append(orttoRequest.Activities, activity)
 
@@ -215,8 +217,10 @@ func (o *OrttoActivitiesMapper) MapTeamFundraisingPage(campaign *FundraisingCamp
 		// Separate person fields (Fields) from activity attributes (Attributes)
 		o.SeparateFieldsAndAttributesAndSortAttributes(&activity)
 
-		// Add fundraiser snapshot field
-		activity.TakeSnapshot(o.Config.API.Settings.OrttoFundraiserSnapshotField)
+		// Optionally add a fundraiser snapshot field
+		if o.Config.API.Settings.OrttoFundraiserSnapshotField != "" {
+			activity.TakeSnapshot(o.Config.API.Settings.OrttoFundraiserSnapshotField)
+		}
 
 		result.Activities = append(result.Activities, activity)
 	}
