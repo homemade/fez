@@ -45,63 +45,102 @@ func GenerateFieldDocumentation(config Config, campaignLabel string, isPersonFie
 	// Process team custom fields
 	processFieldMappings(&doc.Rows, config.TeamFieldMappings.Custom, config.TeamFieldTransforms, false, true, isPersonFieldFn)
 
-	// Sort rows: Person fields first, then Activity fields, alphabetically within each group
-	if config.Target == "ortto-activities" {
-		sort.SliceStable(doc.Rows, func(i, j int) bool {
-			// Person fields come before Activity fields
+	// Sort rows for deterministic output:
+	// - For ortto-activities: Person fields first, then Activity fields
+	// - Within each group: builtin fields first, then custom fields
+	// - Within each subgroup: alphabetically by field name
+	sort.SliceStable(doc.Rows, func(i, j int) bool {
+		// For ortto-activities, Person fields come before Activity fields
+		if config.Target == "ortto-activities" {
 			if doc.Rows[i].Entity != doc.Rows[j].Entity {
 				return doc.Rows[i].Entity == "Person"
 			}
-			return false // maintain original order within same entity
-		})
-	}
+		}
+		// Within same entity (or for ortto-contacts), builtin fields come before custom
+		if doc.Rows[i].IsBuiltin != doc.Rows[j].IsBuiltin {
+			return doc.Rows[i].IsBuiltin
+		}
+		// Within same builtin status, sort alphabetically by field name
+		return doc.Rows[i].FieldName < doc.Rows[j].FieldName
+	})
 
 	return doc
 }
 
 // processFieldMappings extracts field documentation from a FieldMappings struct.
+// Fields are processed in sorted order by field ID for deterministic output.
 func processFieldMappings(rows *[]FieldDocRow, mappings FieldMappings, transforms map[string]string, isBuiltin bool, isTeamField bool, isPersonFieldFn func(fieldID string) bool) {
 	// Strings
-	for fieldID, sourcePath := range mappings.Strings {
-		*rows = append(*rows, createFieldDocRow(fieldID, sourcePath, "Text", transforms, isBuiltin, isTeamField, isPersonFieldFn))
+	for _, fieldID := range sortedKeys(mappings.Strings) {
+		*rows = append(*rows, createFieldDocRow(fieldID, mappings.Strings[fieldID], "Text", transforms, isBuiltin, isTeamField, isPersonFieldFn))
 	}
 
 	// Texts
-	for fieldID, sourcePath := range mappings.Texts {
-		*rows = append(*rows, createFieldDocRow(fieldID, sourcePath, "Long text", transforms, isBuiltin, isTeamField, isPersonFieldFn))
+	for _, fieldID := range sortedKeys(mappings.Texts) {
+		*rows = append(*rows, createFieldDocRow(fieldID, mappings.Texts[fieldID], "Long text", transforms, isBuiltin, isTeamField, isPersonFieldFn))
 	}
 
 	// Decimals
-	for fieldID, sourcePath := range mappings.Decimals {
-		*rows = append(*rows, createFieldDocRow(fieldID, sourcePath, "Decimal number", transforms, isBuiltin, isTeamField, isPersonFieldFn))
+	for _, fieldID := range sortedKeys(mappings.Decimals) {
+		*rows = append(*rows, createFieldDocRow(fieldID, mappings.Decimals[fieldID], "Decimal number", transforms, isBuiltin, isTeamField, isPersonFieldFn))
 	}
 
 	// Integers
-	for fieldID, sourcePath := range mappings.Integers {
-		*rows = append(*rows, createFieldDocRow(fieldID, sourcePath, "Whole number", transforms, isBuiltin, isTeamField, isPersonFieldFn))
+	for _, fieldID := range sortedKeys(mappings.Integers) {
+		*rows = append(*rows, createFieldDocRow(fieldID, mappings.Integers[fieldID], "Whole number", transforms, isBuiltin, isTeamField, isPersonFieldFn))
 	}
 
 	// Booleans
-	for fieldID, sourcePath := range mappings.Booleans {
-		*rows = append(*rows, createFieldDocRow(fieldID, sourcePath, "Boolean", transforms, isBuiltin, isTeamField, isPersonFieldFn))
+	for _, fieldID := range sortedKeys(mappings.Booleans) {
+		*rows = append(*rows, createFieldDocRow(fieldID, mappings.Booleans[fieldID], "Boolean", transforms, isBuiltin, isTeamField, isPersonFieldFn))
 	}
 
 	// Timestamps
-	for fieldID, sourcePath := range mappings.Timestamps {
-		*rows = append(*rows, createFieldDocRow(fieldID, sourcePath, "Time and date", transforms, isBuiltin, isTeamField, isPersonFieldFn))
+	for _, fieldID := range sortedKeys(mappings.Timestamps) {
+		*rows = append(*rows, createFieldDocRow(fieldID, mappings.Timestamps[fieldID], "Time and date", transforms, isBuiltin, isTeamField, isPersonFieldFn))
 	}
 
 	// Phones (nested type)
-	for fieldID, nestedMap := range mappings.Phones {
-		sourcePath := extractNestedSourcePath(nestedMap)
+	for _, fieldID := range sortedKeysPhones(mappings.Phones) {
+		sourcePath := extractNestedSourcePath(mappings.Phones[fieldID])
 		*rows = append(*rows, createFieldDocRow(fieldID, sourcePath, "Phone", transforms, isBuiltin, isTeamField, isPersonFieldFn))
 	}
 
 	// Geos (nested type)
-	for fieldID, nestedMap := range mappings.Geos {
-		sourcePath := extractNestedSourcePath(nestedMap)
+	for _, fieldID := range sortedKeysGeos(mappings.Geos) {
+		sourcePath := extractNestedSourcePath(mappings.Geos[fieldID])
 		*rows = append(*rows, createFieldDocRow(fieldID, sourcePath, "Geo", transforms, isBuiltin, isTeamField, isPersonFieldFn))
 	}
+}
+
+// sortedKeys returns the keys of a map[string]string in sorted order.
+func sortedKeys(m map[string]string) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+// sortedKeysPhones returns the keys of the Phones map in sorted order.
+func sortedKeysPhones(m map[string]map[string]string) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+// sortedKeysGeos returns the keys of the Geos map in sorted order.
+func sortedKeysGeos(m map[string]map[string]string) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 // extractNestedSourcePath extracts the source path from a nested field mapping.
