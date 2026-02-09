@@ -5,7 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net/http"
 	"slices"
+	gosync "sync"
 	"time"
 
 	"github.com/carlmjohnson/requests"
@@ -14,14 +16,19 @@ import (
 
 const (
 	FundraisingProfilesSinceTimestampFormat        = "2006-01-02T15:04:05.999"
-	FundraisingProfilesSinceLimit                  = "100"
+	FundraisingProfilesSinceLimit                  = "1000"
 	FundraisingProfileDonationsUpToTimestampFormat = "2006-01-02T15:04:05.999"
-	FundraisingProfileDonationsUpToLimit           = "100"
+	FundraisingProfileDonationsUpToLimit           = "1000"
 	FundraisingProfileExerciseLogsLimit            = "1000"
 	FundraisingProfileDonationsLimit               = "1000"
 )
 
-type FetchRaiselyDataParams struct {
+var (
+	cachedFundraisingCampaign   *FundraisingCampaign
+	cachedFundraisingCampaignMu gosync.RWMutex
+)
+
+type fetchRaiselyDataParams struct {
 	RaiselyAPIKey     string
 	P2PId             string
 	Context           context.Context
@@ -54,7 +61,12 @@ func (s Source) BoolForPath(path string) (bool, bool) {
 }
 
 func (s Source) Data() map[string]interface{} {
-	return s.data.Value().(map[string]interface{})
+	if v := s.data.Value(); v != nil {
+		if m, ok := v.(map[string]interface{}); ok {
+			return m
+		}
+	}
+	return nil
 }
 
 type FundraisingTeam struct {
@@ -66,6 +78,7 @@ type TeamMember struct {
 }
 
 type FundraisingCampaign struct {
+	Name    string
 	Profile struct {
 		P2PId string
 	}
@@ -188,7 +201,7 @@ type Webhook struct {
 	Diff map[string]interface{} `json:"diff"`
 }
 
-func (p *FundraisingPage) FetchRaiselyData(params FetchRaiselyDataParams) error {
+func (p *FundraisingPage) fetchRaiselyData(params fetchRaiselyDataParams) error {
 	raiselyError := RaiselyError{}
 	var json string
 	err := params.RaiselyAPIBuilder.
@@ -222,7 +235,7 @@ func (p FundraisingPage) HasSameOwnerAs(other FundraisingPage) (bool, error) {
 	return (owner == otherOwner), nil
 }
 
-func (t *FundraisingTeam) FetchRaiselyData(params FetchRaiselyDataParams) error {
+func (t *FundraisingTeam) fetchRaiselyData(params fetchRaiselyDataParams) error {
 	raiselyError := RaiselyError{}
 	err := params.RaiselyAPIBuilder.
 		Pathf("/v3/profiles/%s/members", params.P2PId).
@@ -237,7 +250,7 @@ func (t *FundraisingTeam) FetchRaiselyData(params FetchRaiselyDataParams) error 
 	return err
 }
 
-func (c *FundraisingCampaign) FetchRaiselyData(params FetchRaiselyDataParams) error {
+func (c *FundraisingCampaign) fetchRaiselyData(params fetchRaiselyDataParams) error {
 	raiselyError := RaiselyError{}
 	var json string
 	err := params.RaiselyAPIBuilder.
@@ -256,6 +269,7 @@ func (c *FundraisingCampaign) FetchRaiselyData(params FetchRaiselyDataParams) er
 		log.Printf("Raisely Error: %+v", raiselyError)
 	}
 	data := gjson.Parse(json).Get("data")
+	c.Name = data.Get("name").String()
 	c.Profile.P2PId = data.Get("profile.uuid").String()
 	profileCustomFields := data.Get("config.customFields.profile")
 	if profileCustomFields.Exists() {
@@ -274,7 +288,7 @@ func (c *FundraisingCampaign) FetchRaiselyData(params FetchRaiselyDataParams) er
 	return err
 }
 
-func (p *FundraisingProfilesSince) FetchRaiselyData(params FetchRaiselyDataParams) error {
+func (p *FundraisingProfilesSince) fetchRaiselyData(params fetchRaiselyDataParams) error {
 	raiselyError := RaiselyError{}
 	err := params.RaiselyAPIBuilder.
 		Pathf("/v3/campaigns/%s/profiles", params.P2PId).
@@ -305,7 +319,7 @@ func (p FundraisingProfile) TeamP2PID(fundraisingCampaign *FundraisingCampaign) 
 	return ""
 }
 
-func (d *FundraisingProfileDonationsUpTo) FetchRaiselyData(params FetchRaiselyDataParams) error {
+func (d *FundraisingProfileDonationsUpTo) fetchRaiselyData(params fetchRaiselyDataParams) error {
 	raiselyError := RaiselyError{}
 	err := params.RaiselyAPIBuilder.
 		Pathf("/v3/profiles/%s/donations", params.P2PId).
@@ -345,7 +359,7 @@ func (d *FundraisingProfileDonationsUpTo) FetchRaiselyData(params FetchRaiselyDa
 	return err
 }
 
-func (d *FundraisingProfileDonations) FetchRaiselyData(params FetchRaiselyDataParams) error {
+func (d *FundraisingProfileDonations) fetchRaiselyData(params fetchRaiselyDataParams) error {
 	raiselyError := RaiselyError{}
 	err := params.RaiselyAPIBuilder.
 		Pathf("/v3/profiles/%s/donations", params.P2PId).
@@ -362,7 +376,7 @@ func (d *FundraisingProfileDonations) FetchRaiselyData(params FetchRaiselyDataPa
 	return err
 }
 
-func (d *FundraisingProfileExerciseLogs) FetchRaiselyData(params FetchRaiselyDataParams) error {
+func (d *FundraisingProfileExerciseLogs) fetchRaiselyData(params fetchRaiselyDataParams) error {
 	raiselyError := RaiselyError{}
 	err := params.RaiselyAPIBuilder.
 		Pathf("/v3/profiles/%s/exercise-logs", params.P2PId).
@@ -377,4 +391,240 @@ func (d *FundraisingProfileExerciseLogs) FetchRaiselyData(params FetchRaiselyDat
 	}
 
 	return err
+}
+
+// RaiselyFetcherAndUpdater handles fetching data from the Raisely API.
+// It encapsulates the common fields and patterns used across all mappers.
+type RaiselyFetcherAndUpdater struct {
+	Campaign       string
+	Config         Config
+	RecordRequests bool
+}
+
+// FetchFundraisingCampaign fetches the campaign data from Raisely.
+func (r *RaiselyFetcherAndUpdater) FetchFundraisingCampaign(p2pid string, ctx context.Context) (*FundraisingCampaign, error) {
+	campaign := &FundraisingCampaign{}
+	err := campaign.fetchRaiselyData(r.fetchParams(p2pid, ctx))
+	if err != nil {
+		return nil, err
+	}
+	return campaign, nil
+}
+
+// CachedFundraisingCampaign fetches and caches the fundraising campaign data from Raisely.
+// Thread-safe: uses mutex to protect concurrent access to the cache.
+func (r *RaiselyFetcherAndUpdater) CachedFundraisingCampaign(p2pid string, refresh bool, ctx context.Context) (*FundraisingCampaign, error) {
+	// Check cache with read lock first
+	cachedFundraisingCampaignMu.RLock()
+	cached := cachedFundraisingCampaign
+	cachedFundraisingCampaignMu.RUnlock()
+
+	if cached == nil || refresh {
+		fundraisingCampaign, err := r.FetchFundraisingCampaign(p2pid, ctx)
+		if err == nil {
+			cachedFundraisingCampaignMu.Lock()
+			cachedFundraisingCampaign = fundraisingCampaign
+			cached = fundraisingCampaign
+			cachedFundraisingCampaignMu.Unlock()
+		}
+		if err != nil {
+			cachedFundraisingCampaignMu.RLock()
+			cached = cachedFundraisingCampaign
+			cachedFundraisingCampaignMu.RUnlock()
+			if cached == nil {
+				return nil, err
+			}
+		}
+	}
+
+	return cached, nil
+}
+
+// FundraiserData holds the fetched data for a single fundraiser.
+type FundraiserData struct {
+	Page         FundraisingPage
+	ExerciseLogs FundraisingProfileExerciseLogs
+	Donations    FundraisingProfileDonations
+}
+
+// RaiselyAPIKey returns the Raisely API key from the config.
+func (r *RaiselyFetcherAndUpdater) RaiselyAPIKey() string {
+	return r.Config.API.Keys.Raisely
+}
+
+// RaiselyAPIBuilder returns a new requests.Builder configured for the Raisely API.
+func (r *RaiselyFetcherAndUpdater) RaiselyAPIBuilder() *requests.Builder {
+	apiBuilder := requests.
+		URL("https://api.raisely.com").
+		Client(&http.Client{Timeout: HTTPRequestTimeout})
+	if r.RecordRequests {
+		apiBuilder = apiBuilder.Transport(requests.Record(nil, fmt.Sprintf("pkg/testdata/.requests/%s/raisely", r.Campaign)))
+	}
+	return apiBuilder
+}
+
+// fetchParams builds fetchRaiselyDataParams for a given P2P ID and context.
+func (r *RaiselyFetcherAndUpdater) fetchParams(p2pid string, ctx context.Context) fetchRaiselyDataParams {
+	return fetchRaiselyDataParams{
+		RaiselyAPIKey:     r.RaiselyAPIKey(),
+		P2PId:             p2pid,
+		Context:           ctx,
+		RaiselyAPIBuilder: r.RaiselyAPIBuilder(),
+	}
+}
+
+// FetchFundraiserData fetches a fundraising page and optionally exercise logs and donations.
+func (r *RaiselyFetcherAndUpdater) FetchFundraisingPage(p2pid string, ctx context.Context) (FundraisingPage, error) {
+
+	var result FundraisingPage
+	err := result.fetchRaiselyData(r.fetchParams(p2pid, ctx))
+	return result, err
+
+}
+
+// FetchFundraiserData fetches a fundraising page and optionally exercise logs and donations.
+func (r *RaiselyFetcherAndUpdater) FetchFundraiserData(p2pid string, ctx context.Context) (FundraiserData, error) {
+	var result FundraiserData
+	var wg gosync.WaitGroup // add a wait group for the fundraiser requests
+	var errs []error
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		if err := result.Page.fetchRaiselyData(r.fetchParams(p2pid, ctx)); err != nil {
+			errs = append(errs, err)
+		}
+	}()
+
+	if r.Config.MapActivityLogs() {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := result.ExerciseLogs.fetchRaiselyData(r.fetchParams(p2pid, ctx)); err != nil {
+				errs = append(errs, err)
+			}
+		}()
+	}
+
+	if r.Config.MapDonations() {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := result.Donations.fetchRaiselyData(r.fetchParams(p2pid, ctx)); err != nil {
+				errs = append(errs, err)
+			}
+		}()
+	}
+
+	wg.Wait() // wait until all requests have completed
+	if len(errs) > 0 {
+		return result, fmt.Errorf("raisely errors: %v", errs)
+	}
+
+	return result, nil
+}
+
+// FetchTeam fetches a team and its fundraising page.
+func (r *RaiselyFetcherAndUpdater) FetchTeam(p2pteamid string, ctx context.Context) (FundraisingTeam, FundraisingPage, error) {
+	var team FundraisingTeam
+	var teamPage FundraisingPage
+	var wg gosync.WaitGroup
+	var errs []error
+
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		if err := team.fetchRaiselyData(r.fetchParams(p2pteamid, ctx)); err != nil {
+			errs = append(errs, err)
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		if err := teamPage.fetchRaiselyData(r.fetchParams(p2pteamid, ctx)); err != nil {
+			errs = append(errs, err)
+		}
+	}()
+	wg.Wait()
+
+	if len(errs) > 0 {
+		return team, teamPage, fmt.Errorf("raisely errors: %v", errs)
+	}
+	return team, teamPage, nil
+}
+
+// FetchTeamMembers fetches fundraising pages for all members of a team.
+func (r *RaiselyFetcherAndUpdater) FetchTeamMembers(team FundraisingTeam, ctx context.Context) ([]FundraisingPage, error) {
+	var memberPages []FundraisingPage
+	var errs []error
+
+	if len(team.TeamMembers) == 0 {
+		return memberPages, nil
+	}
+
+	var wg gosync.WaitGroup
+	var mu gosync.Mutex
+	for _, member := range team.TeamMembers {
+		wg.Add(1)
+		go func(memberP2PId string) {
+			defer wg.Done()
+			var page FundraisingPage
+			if err := page.fetchRaiselyData(r.fetchParams(memberP2PId, ctx)); err != nil {
+				errs = append(errs, err)
+			}
+			mu.Lock()
+			memberPages = append(memberPages, page)
+			mu.Unlock()
+		}(member.P2PId)
+	}
+	wg.Wait()
+
+	if len(errs) > 0 {
+		return memberPages, fmt.Errorf("raisely errors: %v", errs)
+	}
+	return memberPages, nil
+}
+
+// FetchProfilesSince fetches fundraising profiles updated after the given timestamp.
+func (r *RaiselyFetcherAndUpdater) FetchProfilesSince(campaignP2PId string, since time.Time, ctx context.Context) (FundraisingProfilesSince, error) {
+	profiles := FundraisingProfilesSince{
+		Timestamp: since,
+	}
+	err := profiles.fetchRaiselyData(r.fetchParams(campaignP2PId, ctx))
+	return profiles, err
+}
+
+// FetchDonationsUpTo fetches donations for a profile up to the given time.
+func (r *RaiselyFetcherAndUpdater) FetchDonationsUpTo(profileP2PId string, upTo time.Time, ctx context.Context) (FundraisingProfileDonationsUpTo, error) {
+	donations := FundraisingProfileDonationsUpTo{
+		UpTo: upTo,
+	}
+	err := donations.fetchRaiselyData(r.fetchParams(profileP2PId, ctx))
+	return donations, err
+}
+
+func (r *RaiselyFetcherAndUpdater) UpdateRaiselyData(request UpdateRaiselyDataRequest, ctx context.Context) (int, error) {
+	raiselyError := RaiselyError{}
+	var result int
+	err := r.RaiselyAPIBuilder().
+		Patch().
+		Pathf("/v3/profiles/%s", request.P2PId).
+		Param("partial", "true").
+		Bearer(r.RaiselyAPIKey()).
+		BodyBytes([]byte(request.JSON)).
+		ContentType("application/json").
+		ErrorJSON(&raiselyError).
+		Handle(func(response *http.Response) error {
+			result = response.StatusCode
+			return nil
+		}).
+		Fetch(ctx)
+	if err != nil {
+		log.Printf("Raisely Error: %+v", raiselyError)
+	}
+	return result, err
+}
+
+type UpdateRaiselyDataRequest struct {
+	P2PId string
+	JSON  string
 }

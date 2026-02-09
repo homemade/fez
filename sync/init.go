@@ -2,6 +2,7 @@ package sync
 
 import (
 	"fmt"
+	"log"
 	"net/url"
 	"strconv"
 	"strings"
@@ -92,6 +93,7 @@ func Init(flavour Flavour) {
 				}
 			}
 			if err != nil {
+				log.Printf("Warning: failed to parse phone number %q with country code %q: %v (using empty country code)", number, arg, err)
 				countryCode = ""
 			}
 		}

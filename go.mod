@@ -1,6 +1,6 @@
 module github.com/homemade/fez
 
-go 1.21
+go 1.24
 
 require (
 	github.com/biter777/countries v1.6.6

@@ -2,6 +2,7 @@ package sync
 
 import (
 	"fmt"
+	"log"
 	"slices"
 	"strconv"
 	"strings"
@@ -73,6 +74,8 @@ func CalcDaysForStreakFromEntries(entries []StreakableEntry) EpochDays {
 		t, err := time.Parse(time.RFC3339, e.TimestampForStreak)
 		if err == nil {
 			nextEpochDay = t.Unix() / EpochDaySeconds
+		} else if e.TimestampForStreak != "" {
+			log.Printf("Warning: failed to parse streak timestamp %q as RFC3339: %v (using epoch day 0)", e.TimestampForStreak, err)
 		}
 		if v, exists := result.Entries[nextEpochDay]; exists {
 			result.Entries[nextEpochDay] = append(v, e.TimestampForStreak)

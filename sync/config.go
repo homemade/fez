@@ -10,6 +10,9 @@ import (
 )
 
 type Config struct {
+	// Target identifies the integration target (e.g., "", "ortto-contacts", "ortto-activities").
+	// Empty string indicates legacy files which default to ortto-contacts behavior.
+	Target                  string // NOTE: Set from the mapping file name suffix NOT the YAML content
 	API                     APISettings
 	CampaignPrefix          string
 	FundraiserFieldMappings struct {
@@ -30,6 +33,13 @@ type APISettings struct {
 		Raisely   string
 		Funraisin string
 		Ortto     string
+	}
+	// Settings contains extra API values needed for syncing.
+	Settings struct {
+		OrttoActivityName            string `yaml:"orttoActivityName"`
+		OrttoActivityId              string `yaml:"orttoActivityId"` // Required if Target is "ortto-activities" (Ortto Activities API)
+		OrttoFundraiserSnapshotField string `yaml:"orttoFundraiserSnapshotField"`
+		OrttoFundraiserMergeField    string `yaml:"orttoFundraiserMergeField"` // Required if Target is "ortto-activities" (Ortto Activities API)
 	}
 	Endpoints struct {
 		Ortto string
@@ -298,15 +308,20 @@ func (u YAMLConfigUnmarshaler) Unmarshal(compev CompositeEnvVar, sources ...Mapp
 		return result, readError(key, err)
 	}
 
-	err = u.CRMFieldMapper.ExpandFieldMappings(&result.FundraiserFieldMappings.Builtin, false)
-	if err == nil {
-		err = u.CRMFieldMapper.ExpandFieldMappings(&result.FundraiserFieldMappings.Custom, true)
-	}
-	if err == nil {
-		err = u.CRMFieldMapper.ExpandFieldMappings(&result.TeamFieldMappings.Custom, true)
-	}
-	if err != nil {
-		return result, err
+	// Only expand field mappings if CRMFieldMapper is provided.
+	// This allows loading config for Raisely-only use cases (like extensions)
+	// without requiring Ortto/CRM dependencies.
+	if u.CRMFieldMapper != nil {
+		err = u.CRMFieldMapper.ExpandFieldMappings(&result.FundraiserFieldMappings.Builtin, false)
+		if err == nil {
+			err = u.CRMFieldMapper.ExpandFieldMappings(&result.FundraiserFieldMappings.Custom, true)
+		}
+		if err == nil {
+			err = u.CRMFieldMapper.ExpandFieldMappings(&result.TeamFieldMappings.Custom, true)
+		}
+		if err != nil {
+			return result, err
+		}
 	}
 
 	return result, nil
