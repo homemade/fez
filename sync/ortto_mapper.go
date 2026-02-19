@@ -140,6 +140,8 @@ type OrttoMapper interface {
 // If target is empty or "ortto-contacts", it returns an OrttoContactsMapper.
 // If target is "ortto-activities", it returns an OrttoActivitiesMapper.
 func NewOrttoMapper(config Config, orttoctx OrttoSyncContext, recordRequests bool) OrttoMapper {
+	mustBeInitialised()
+
 	mapper := RaiselyMapper{
 		RaiselyFetcherAndUpdater: RaiselyFetcherAndUpdater{
 			Campaign:       orttoctx.CampaignId,

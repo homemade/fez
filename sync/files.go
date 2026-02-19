@@ -38,14 +38,6 @@ func (em EmbeddedMappings) MustFindRootMappingFile(filename string) (MappingFile
 	return result, err
 }
 
-func (em EmbeddedMappings) MustFindRequiredMappingFile() (MappingFile, error) {
-	return em.MustFindRootMappingFile("required.yaml")
-}
-
-func (em EmbeddedMappings) MustFindDefaultsMappingFile() (MappingFile, error) {
-	return em.MustFindRootMappingFile("defaults.yaml")
-}
-
 // MustFindRequiredMappingFileForTarget returns the required mapping file for a specific target.
 // For empty target or "ortto-contacts", returns the default "required.yaml".
 // For other targets, returns "required.<target>.yaml".
@@ -66,47 +58,46 @@ func (em EmbeddedMappings) MustFindDefaultsMappingFileForTarget(target string) (
 	return em.MustFindRootMappingFile(fmt.Sprintf("defaults.%s.yaml", target))
 }
 
-func (em EmbeddedMappings) MustFindFirstCampaignMappingFile(campaign string) (MappingFile, error) {
-	result, _, err := em.MustFindFirstCampaignMappingFileWithTarget(campaign)
-	return result, err
-}
-
-// MustFindFirstCampaignMappingFileWithTarget finds the campaign mapping file and extracts the target
-// from the filename. Returns the mapping file, the target (e.g., "ortto-activities"), and any error.
-// For legacy files without a target suffix, target will be empty string.
-func (em EmbeddedMappings) MustFindFirstCampaignMappingFileWithTarget(campaign string) (MappingFile, string, error) {
-	var result MappingFile
-	var target string
+// MustFindFirstCampaignMappingFileWithTargetByLabel finds a campaign mapping file by its label.
+// The label must exactly match the first dot-separated segment of the filename.
+// Filename format: <LABEL>[.<target>].yaml
+// Returns the mapping file, the target, and any error.
+func (em EmbeddedMappings) MustFindFirstCampaignMappingFileWithTargetByLabel(label string) (result MappingFile, target string, err error) {
 	dir := path.Join(em.Root, "campaigns")
-	files, err := em.Files.ReadDir(dir)
+	var files []fs.DirEntry
+	files, err = em.Files.ReadDir(dir)
 	if err != nil {
 		return result, target, err
 	}
 	for _, file := range files {
 		p := file.Name()
-		if strings.HasPrefix(p, campaign) {
-			// multiple matches are not supported - guard against misconfiguration
-			if result.Name != "" {
-				err = fmt.Errorf("found multiple mapping files with prefix: %s in dir: %s", campaign, dir)
-				return result, target, err
-			}
-
-			// Extract target from filename
-			target = extractTargetFromFilename(p)
-
-			p = path.Join(dir, p)
-			var campaignMappings []byte
-			campaignMappings, err = em.Files.ReadFile(p)
-			if err == nil {
-				result.Name = p
-				result.Reader = bytes.NewReader(campaignMappings)
-				result.Length = len(campaignMappings)
-			}
+		name := strings.TrimSuffix(p, ".yaml")
+		name = strings.TrimSuffix(name, ".yml")
+		parts := strings.SplitN(name, ".", 2)
+		if parts[0] != label {
+			continue
 		}
 
+		// multiple matches are not supported - guard against misconfiguration
+		if result.Name != "" {
+			err = fmt.Errorf("found multiple mapping files with label: %s in dir: %s", label, dir)
+			return result, target, err
+		}
+
+		// Extract target from filename
+		target = extractTargetFromFilename(p)
+
+		fullpath := path.Join(dir, p)
+		var campaignMappings []byte
+		campaignMappings, err = em.Files.ReadFile(fullpath)
+		if err == nil {
+			result.Name = fullpath
+			result.Reader = bytes.NewReader(campaignMappings)
+			result.Length = len(campaignMappings)
+		}
 	}
 	if result.Name == "" {
-		err = fmt.Errorf("failed to find mapping file with prefix: %s in dir: %s", campaign, dir)
+		err = fmt.Errorf("failed to find mapping file with label: %s in dir: %s", label, dir)
 	}
 	return result, target, err
 }
@@ -124,7 +115,7 @@ func extractTargetFromFilename(filename string) string {
 	name := strings.TrimSuffix(filename, ".yaml")
 	name = strings.TrimSuffix(name, ".yml")
 	parts := strings.Split(name, ".")
-	if len(parts) >= 3 {
+	if len(parts) >= 2 {
 		lastPart := parts[len(parts)-1]
 		if knownTargets[lastPart] {
 			return lastPart
