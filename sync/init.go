@@ -62,7 +62,7 @@ func Init(flavour Flavour) {
 			if !res.Exists() {
 				return ""
 			}
-			if arg == "RAISLEY_2DP" {
+			if arg == "RAISELY_2DP" {
 				i := res.Int()
 				// raisely stores currency in the smallest currency unit (e.g. cents/pence)
 				// but ortto expects currencies in the larger unit (e.g. $,£,€)
