@@ -113,11 +113,9 @@ func (c OrttoSyncContext) AsOrttoActivitiesAttributes() OrttoAttributes {
 // Each target (e.g., ortto-contacts, ortto-activities) has its own request type
 // that implements this interface.
 type OrttoRequest interface {
-	ItemCount() int                                    // Returns the number of items (contacts or activities)
-	IsOrttoContactsRequest() bool                      // Returns true if this is a contacts request
-	AsOrttoContactsRequest() *OrttoContactsRequest     // Returns self if contacts request, nil otherwise
-	IsOrttoActivitiesRequest() bool                    // Returns true if this is an activities request
-	AsOrttoActivitiesRequest() *OrttoActivitiesRequest // Returns self if activities request, nil otherwise
+	ItemCount() int                                          // Returns the number of items (contacts or activities)
+	AsOrttoContactsRequest() (OrttoContactsRequest, bool)    // Returns (request, true) if contacts request, (zero, false) otherwise
+	AsOrttoActivitiesRequest() (OrttoActivitiesRequest, bool) // Returns (request, true) if activities request, (zero, false) otherwise
 }
 
 // OrttoResponse is the interface for all ortto-specific response types.
@@ -196,24 +194,14 @@ func (r OrttoContactsRequest) ItemCount() int {
 	return len(r.Contacts)
 }
 
-// IsOrttoContactsRequest returns true since this is a contacts request.
-func (r OrttoContactsRequest) IsOrttoContactsRequest() bool {
-	return true
+// AsOrttoContactsRequest returns this request and true.
+func (r OrttoContactsRequest) AsOrttoContactsRequest() (OrttoContactsRequest, bool) {
+	return r, true
 }
 
-// AsOrttoContactsRequest returns a pointer to this request.
-func (r OrttoContactsRequest) AsOrttoContactsRequest() *OrttoContactsRequest {
-	return &r
-}
-
-// IsOrttoActivitiesRequest returns false since this is not an activities request.
-func (r OrttoContactsRequest) IsOrttoActivitiesRequest() bool {
-	return false
-}
-
-// AsOrttoActivitiesRequest returns nil since this is not an activities request.
-func (r OrttoContactsRequest) AsOrttoActivitiesRequest() *OrttoActivitiesRequest {
-	return nil
+// AsOrttoActivitiesRequest returns a zero value and false since this is not an activities request.
+func (r OrttoContactsRequest) AsOrttoActivitiesRequest() (OrttoActivitiesRequest, bool) {
+	return OrttoActivitiesRequest{}, false
 }
 
 // OrttoActivitiesRequest is the request type for the Ortto Activities API.
@@ -279,24 +267,14 @@ func (r OrttoActivitiesRequest) ItemCount() int {
 	return len(r.Activities)
 }
 
-// IsOrttoContactsRequest returns false since this is not a contacts request.
-func (r OrttoActivitiesRequest) IsOrttoContactsRequest() bool {
-	return false
+// AsOrttoContactsRequest returns a zero value and false since this is not a contacts request.
+func (r OrttoActivitiesRequest) AsOrttoContactsRequest() (OrttoContactsRequest, bool) {
+	return OrttoContactsRequest{}, false
 }
 
-// AsOrttoContactsRequest returns nil since this is not a contacts request.
-func (r OrttoActivitiesRequest) AsOrttoContactsRequest() *OrttoContactsRequest {
-	return nil
-}
-
-// IsOrttoActivitiesRequest returns true since this is an activities request.
-func (r OrttoActivitiesRequest) IsOrttoActivitiesRequest() bool {
-	return true
-}
-
-// AsOrttoActivitiesRequest returns a pointer to this request.
-func (r OrttoActivitiesRequest) AsOrttoActivitiesRequest() *OrttoActivitiesRequest {
-	return &r
+// AsOrttoActivitiesRequest returns this request and true.
+func (r OrttoActivitiesRequest) AsOrttoActivitiesRequest() (OrttoActivitiesRequest, bool) {
+	return r, true
 }
 
 type OrttoError struct {
