@@ -235,7 +235,7 @@ type OrttoActivity struct {
 	Key        string                 `json:"key,omitempty"`
 }
 
-func (a OrttoActivity) TakeSnapshot(field string) {
+func (a *OrttoActivity) TakeSnapshot(field string) {
 	// Snapshot field is an object containing all activity attributes
 	// excluding the special "obj:cm:sync-context" and "obj:cm:cdp-fields"
 	removeOrttoMetaPrefix := func(s string) string {
