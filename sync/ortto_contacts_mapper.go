@@ -314,7 +314,6 @@ func (o *OrttoContactsMapper) ReconcileFundraisingPage(p2pregistrationid string,
 					Expected: string(expected),
 				}
 			}
-			i = i + 1
 		}
 	}
 
