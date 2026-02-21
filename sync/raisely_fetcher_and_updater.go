@@ -378,7 +378,7 @@ func (d *FundraisingProfileExerciseLogs) fetchRaiselyData(params fetchRaiselyDat
 	err := params.RaiselyAPIBuilder.
 		Pathf("/v3/profiles/%s/exercise-logs", params.P2PId).
 		Param("private", "true").
-		Param("limit", FundraisingProfileDonationsLimit).
+		Param("limit", FundraisingProfileExerciseLogsLimit).
 		Bearer(params.RaiselyAPIKey).
 		ToJSON(d).
 		ErrorJSON(&raiselyError).
