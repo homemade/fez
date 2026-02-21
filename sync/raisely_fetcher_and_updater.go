@@ -23,10 +23,7 @@ const (
 	FundraisingProfileDonationsLimit               = "1000"
 )
 
-var (
-	cachedFundraisingCampaign   *FundraisingCampaign
-	cachedFundraisingCampaignMu gosync.RWMutex
-)
+var cachedFundraisingCampaigns gosync.Map // map[string]*FundraisingCampaign
 
 type fetchRaiselyDataParams struct {
 	RaiselyAPIKey     string
@@ -412,32 +409,25 @@ func (r *RaiselyFetcherAndUpdater) FetchFundraisingCampaign(p2pid string, ctx co
 }
 
 // CachedFundraisingCampaign fetches and caches the fundraising campaign data from Raisely.
-// Thread-safe: uses mutex to protect concurrent access to the cache.
+// Thread-safe: uses sync.Map keyed by campaign ID.
 func (r *RaiselyFetcherAndUpdater) CachedFundraisingCampaign(p2pid string, refresh bool, ctx context.Context) (*FundraisingCampaign, error) {
-	// Check cache with read lock first
-	cachedFundraisingCampaignMu.RLock()
-	cached := cachedFundraisingCampaign
-	cachedFundraisingCampaignMu.RUnlock()
-
-	if cached == nil || refresh {
-		fundraisingCampaign, err := r.FetchFundraisingCampaign(p2pid, ctx)
-		if err == nil {
-			cachedFundraisingCampaignMu.Lock()
-			cachedFundraisingCampaign = fundraisingCampaign
-			cached = fundraisingCampaign
-			cachedFundraisingCampaignMu.Unlock()
-		}
-		if err != nil {
-			cachedFundraisingCampaignMu.RLock()
-			cached = cachedFundraisingCampaign
-			cachedFundraisingCampaignMu.RUnlock()
-			if cached == nil {
-				return nil, err
-			}
+	if !refresh {
+		if v, ok := cachedFundraisingCampaigns.Load(p2pid); ok {
+			return v.(*FundraisingCampaign), nil
 		}
 	}
 
-	return cached, nil
+	fundraisingCampaign, err := r.FetchFundraisingCampaign(p2pid, ctx)
+	if err != nil {
+		// On error, fall back to cached value if available
+		if v, ok := cachedFundraisingCampaigns.Load(p2pid); ok {
+			return v.(*FundraisingCampaign), nil
+		}
+		return nil, err
+	}
+
+	cachedFundraisingCampaigns.Store(p2pid, fundraisingCampaign)
+	return fundraisingCampaign, nil
 }
 
 // FundraiserData holds the fetched data for a single fundraiser.
@@ -485,24 +475,20 @@ func (r *RaiselyFetcherAndUpdater) FetchFundraisingPage(p2pid string, ctx contex
 // FetchFundraiserData fetches a fundraising page and optionally exercise logs and donations.
 func (r *RaiselyFetcherAndUpdater) FetchFundraiserData(p2pid string, ctx context.Context) (FundraiserData, error) {
 	var result FundraiserData
-	var wg gosync.WaitGroup // add a wait group for the fundraiser requests
-	var errs []error
+	var wg gosync.WaitGroup
+	var errPage, errLogs, errDonations error
 
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		if err := result.Page.fetchRaiselyData(r.fetchParams(p2pid, ctx)); err != nil {
-			errs = append(errs, err)
-		}
+		errPage = result.Page.fetchRaiselyData(r.fetchParams(p2pid, ctx))
 	}()
 
 	if r.Config.MapActivityLogs() {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			if err := result.ExerciseLogs.fetchRaiselyData(r.fetchParams(p2pid, ctx)); err != nil {
-				errs = append(errs, err)
-			}
+			errLogs = result.ExerciseLogs.fetchRaiselyData(r.fetchParams(p2pid, ctx))
 		}()
 	}
 
@@ -510,15 +496,13 @@ func (r *RaiselyFetcherAndUpdater) FetchFundraiserData(p2pid string, ctx context
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			if err := result.Donations.fetchRaiselyData(r.fetchParams(p2pid, ctx)); err != nil {
-				errs = append(errs, err)
-			}
+			errDonations = result.Donations.fetchRaiselyData(r.fetchParams(p2pid, ctx))
 		}()
 	}
 
-	wg.Wait() // wait until all requests have completed
-	if len(errs) > 0 {
-		return result, fmt.Errorf("raisely errors: %v", errs)
+	wg.Wait()
+	if err := errors.Join(errPage, errLogs, errDonations); err != nil {
+		return result, fmt.Errorf("raisely errors: %w", err)
 	}
 
 	return result, nil
@@ -529,59 +513,48 @@ func (r *RaiselyFetcherAndUpdater) FetchTeam(p2pteamid string, ctx context.Conte
 	var team FundraisingTeam
 	var teamPage FundraisingPage
 	var wg gosync.WaitGroup
-	var errs []error
+	var errTeam, errPage error
 
 	wg.Add(2)
 	go func() {
 		defer wg.Done()
-		if err := team.fetchRaiselyData(r.fetchParams(p2pteamid, ctx)); err != nil {
-			errs = append(errs, err)
-		}
+		errTeam = team.fetchRaiselyData(r.fetchParams(p2pteamid, ctx))
 	}()
 	go func() {
 		defer wg.Done()
-		if err := teamPage.fetchRaiselyData(r.fetchParams(p2pteamid, ctx)); err != nil {
-			errs = append(errs, err)
-		}
+		errPage = teamPage.fetchRaiselyData(r.fetchParams(p2pteamid, ctx))
 	}()
 	wg.Wait()
 
-	if len(errs) > 0 {
-		return team, teamPage, fmt.Errorf("raisely errors: %v", errs)
+	if err := errors.Join(errTeam, errPage); err != nil {
+		return team, teamPage, fmt.Errorf("raisely errors: %w", err)
 	}
 	return team, teamPage, nil
 }
 
 // FetchTeamMembers fetches fundraising pages for all members of a team.
 func (r *RaiselyFetcherAndUpdater) FetchTeamMembers(team FundraisingTeam, ctx context.Context) ([]FundraisingPage, error) {
-	var memberPages []FundraisingPage
-	var errs []error
-
 	if len(team.TeamMembers) == 0 {
-		return memberPages, nil
+		return nil, nil
 	}
 
+	pages := make([]FundraisingPage, len(team.TeamMembers))
+	errs := make([]error, len(team.TeamMembers))
+
 	var wg gosync.WaitGroup
-	var mu gosync.Mutex
-	for _, member := range team.TeamMembers {
+	for i, member := range team.TeamMembers {
 		wg.Add(1)
-		go func(memberP2PId string) {
+		go func(index int, memberP2PId string) {
 			defer wg.Done()
-			var page FundraisingPage
-			if err := page.fetchRaiselyData(r.fetchParams(memberP2PId, ctx)); err != nil {
-				errs = append(errs, err)
-			}
-			mu.Lock()
-			memberPages = append(memberPages, page)
-			mu.Unlock()
-		}(member.P2PId)
+			errs[index] = pages[index].fetchRaiselyData(r.fetchParams(memberP2PId, ctx))
+		}(i, member.P2PId)
 	}
 	wg.Wait()
 
-	if len(errs) > 0 {
-		return memberPages, fmt.Errorf("raisely errors: %v", errs)
+	if err := errors.Join(errs...); err != nil {
+		return pages, fmt.Errorf("raisely errors: %w", err)
 	}
-	return memberPages, nil
+	return pages, nil
 }
 
 // FetchProfilesSince fetches fundraising profiles updated after the given timestamp.
