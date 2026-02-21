@@ -298,12 +298,18 @@ func (o *OrttoActivitiesMapper) MapTrackingData(campaign *FundraisingCampaign, d
 // SearchForFundraiserByEmail searches Ortto for a contact by email that has the merge field set.
 func (o *OrttoActivitiesMapper) SearchForFundraiserByEmail(email string, ctx context.Context) ([]OrttoContact, error) {
 
+	// json.Marshal to safely escape email for interpolation into JSON body
+	emailJSON, err := json.Marshal(email)
+	if err != nil {
+		return nil, err
+	}
+
 	response := struct {
 		Contacts []OrttoContact `json:"contacts"`
 		Error    OrttoError
 	}{}
 
-	err := o.OrttoAPIBuilder().
+	err = o.OrttoAPIBuilder().
 		Path("/v1/person/get").
 		Header("X-Api-Key", o.Config.API.Keys.Ortto).
 		Post().
@@ -322,13 +328,13 @@ func (o *OrttoActivitiesMapper) SearchForFundraiserByEmail(email string, ctx con
 				{
 					"$str::is": {
 					"field_id": "str::email",
-					"value": "%s"
+					"value": %s
 					}
 				}
 				]
 			}
 		}
-		`, o.Config.API.Settings.OrttoFundraiserMergeField, o.Config.API.Settings.OrttoFundraiserMergeField, email))).
+		`, o.Config.API.Settings.OrttoFundraiserMergeField, o.Config.API.Settings.OrttoFundraiserMergeField, emailJSON))).
 		ToJSON(&response).
 		ErrorJSON(&response.Error).
 		Fetch(ctx)

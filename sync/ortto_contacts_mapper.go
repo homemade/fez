@@ -171,12 +171,18 @@ func (o *OrttoContactsMapper) SendRequest(req OrttoRequest, ctx context.Context)
 // SearchForFundraisingPageByEmail searches Ortto for a contact by email that has a p2p registration id.
 func (o *OrttoContactsMapper) SearchForFundraisingPageByEmail(email string, ctx context.Context) ([]OrttoContact, error) {
 
+	// json.Marshal to safely escape email for interpolation into JSON body
+	emailJSON, err := json.Marshal(email)
+	if err != nil {
+		return nil, err
+	}
+
 	response := struct {
 		Contacts []OrttoContact `json:"contacts"`
 		Error    OrttoError
 	}{}
 
-	err := o.OrttoAPIBuilder().
+	err = o.OrttoAPIBuilder().
 		Path("/v1/person/get").
 		Header("X-Api-Key", o.Config.API.Keys.Ortto).
 		Post().
@@ -195,13 +201,13 @@ func (o *OrttoContactsMapper) SearchForFundraisingPageByEmail(email string, ctx 
 				{
 					"$str::is": {
 					"field_id": "str::email",
-					"value": "%s"
+					"value": %s
 					}
 				}
 				]
 			}
 		}
-		`, o.Config.CampaignPrefix, o.Config.CampaignPrefix, email))).
+		`, o.Config.CampaignPrefix, o.Config.CampaignPrefix, emailJSON))).
 		ToJSON(&response).
 		ErrorJSON(&response.Error).
 		Fetch(ctx)
