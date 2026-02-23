@@ -43,6 +43,9 @@ func Init(flavour Flavour) {
 	// Validate no duplicate campaign UUIDs across env vars
 	validateNoDuplicateCampaignUUIDs()
 
+	// Validate env var names match org prefix from MAPPING_PATH
+	validateEnvVarOrgPrefix()
+
 	if flavour == Raisely2Ortto { // currently the only flavour, but structure allows for easy addition of new flavours in the future
 
 		gjson.AddModifier("pathJoinURL", func(json, arg string) string {
@@ -170,6 +173,40 @@ func Init(flavour Flavour) {
 
 	}
 
+}
+
+// validateEnvVarOrgPrefix scans all environment variables for JSON values
+// containing a MAPPING_PATH and validates that the env var name starts with
+// the org prefix from the path (the portion before the "/").
+func validateEnvVarOrgPrefix() {
+	for _, env := range os.Environ() {
+		parts := strings.SplitN(env, "=", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		name, value := parts[0], parts[1]
+
+		var m map[string]string
+		// Most env vars are plain strings (e.g. PATH), not JSON — skip those silently
+		if err := json.Unmarshal([]byte(value), &m); err != nil {
+			continue
+		}
+
+		mappingPath, ok := m["MAPPING_PATH"]
+		if !ok {
+			continue
+		}
+
+		index := strings.Index(mappingPath, "/")
+		if index == -1 {
+			log.Fatalf("MAPPING_PATH %q in env var %q must contain org directory (e.g. ORG/LABEL)", mappingPath, name)
+		}
+
+		org := mappingPath[:index]
+		if !strings.HasPrefix(name, org+"_") {
+			log.Fatalf("env var name %q must start with org prefix %q (from MAPPING_PATH %q)", name, org+"_", mappingPath)
+		}
+	}
 }
 
 // validateNoDuplicateCampaignUUIDs scans all environment variables for JSON values

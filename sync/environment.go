@@ -27,12 +27,12 @@ func ConfigWithCRMFieldMapper(mapper CRMFieldMapper) ConfigOption {
 // a campaignUUIDKey key matching the given campaignUUID.
 // The campaignUUIDKey parameter specifies the JSON key to look for
 // (e.g. "RAISELY_CAMPAIGN_UUID" for the Raisely2Ortto flavour).
-// Returns the env var name and the MAPPING_LABEL value.
-// Returns an error if multiple env vars match the same UUID, or if MAPPING_LABEL is missing.
-func FindCampaignEnvVar(campaignUUIDKey string, campaignUUID string) (envVarName string, mappingLabel string, err error) {
+// Returns the env var name and the MAPPING_PATH value.
+// Returns an error if multiple env vars match the same UUID, or if MAPPING_PATH is missing.
+func FindCampaignEnvVar(campaignUUIDKey string, campaignUUID string) (envVarName string, mappingPath string, err error) {
 	type match struct {
-		name  string
-		label string
+		name string
+		path string
 	}
 	var matches []match
 
@@ -54,12 +54,12 @@ func FindCampaignEnvVar(campaignUUIDKey string, campaignUUID string) (envVarName
 			continue
 		}
 
-		label, ok := m["MAPPING_LABEL"]
-		if !ok || label == "" {
-			return "", "", fmt.Errorf("env var %q contains %s but is missing MAPPING_LABEL", name, campaignUUIDKey)
+		p, ok := m["MAPPING_PATH"]
+		if !ok || p == "" {
+			return "", "", fmt.Errorf("env var %q contains %s but is missing MAPPING_PATH", name, campaignUUIDKey)
 		}
 
-		matches = append(matches, match{name: name, label: label})
+		matches = append(matches, match{name: name, path: p})
 	}
 
 	if len(matches) == 0 {
@@ -73,7 +73,7 @@ func FindCampaignEnvVar(campaignUUIDKey string, campaignUUID string) (envVarName
 		return "", "", fmt.Errorf("found multiple env vars with %s %q: %s", campaignUUIDKey, campaignUUID, strings.Join(names, ", "))
 	}
 
-	return matches[0].name, matches[0].label, nil
+	return matches[0].name, matches[0].path, nil
 }
 
 // campaignUUIDKeyForFlavour returns the JSON key used to identify campaign UUIDs
@@ -87,15 +87,15 @@ func campaignUUIDKeyForFlavour(flavour Flavour) (string, error) {
 	}
 }
 
-// CampaignEnvVar represents a campaign environment variable with its label and UUID.
+// CampaignEnvVar represents a campaign environment variable with its path and UUID.
 type CampaignEnvVar struct {
-	Label string
-	UUID  string
+	Path string
+	UUID string
 }
 
 // FindAllCampaignEnvVars scans environment variables for JSON values containing
-// a campaign UUID key (determined by the initialised flavour) and a MAPPING_LABEL.
-// Returns a map of label -> UUID for all matching env vars.
+// a campaign UUID key (determined by the initialised flavour) and a MAPPING_PATH.
+// Returns a map of path -> UUID for all matching env vars.
 func FindAllCampaignEnvVars() (map[string]CampaignEnvVar, error) {
 	campaignUUIDKey, err := campaignUUIDKeyForFlavour(GetInitialisedFlavour())
 	if err != nil {
@@ -115,10 +115,10 @@ func FindAllCampaignEnvVars() (map[string]CampaignEnvVar, error) {
 			continue
 		}
 
-		label, hasLabel := m["MAPPING_LABEL"]
+		p, hasPath := m["MAPPING_PATH"]
 		uuid, hasUUID := m[campaignUUIDKey]
-		if hasLabel && hasUUID {
-			result[label] = CampaignEnvVar{Label: label, UUID: uuid}
+		if hasPath && hasUUID {
+			result[p] = CampaignEnvVar{Path: p, UUID: uuid}
 		}
 	}
 	return result, nil
@@ -137,7 +137,7 @@ func LoadCampaignConfigFromEnvironment(embeddedmappings EmbeddedMappings, campai
 	if err != nil {
 		return result, err
 	}
-	envVarName, mappingLabel, err := FindCampaignEnvVar(campaignUUIDKey, campaign)
+	envVarName, mappingPath, err := FindCampaignEnvVar(campaignUUIDKey, campaign)
 	if err != nil {
 		return result, fmt.Errorf("failed to find campaign env var %w", err)
 	}
@@ -145,8 +145,8 @@ func LoadCampaignConfigFromEnvironment(embeddedmappings EmbeddedMappings, campai
 		return result, fmt.Errorf("no env var found with %s %q", campaignUUIDKey, campaign)
 	}
 
-	// Use mapping label to find file
-	campaignMappingFile, target, err := embeddedmappings.MustFindFirstCampaignMappingFileWithTargetByLabel(mappingLabel)
+	// Use mapping path to find file
+	campaignMappingFile, target, err := embeddedmappings.MustFindFirstCampaignMappingFileWithTargetByPath(mappingPath)
 	if err != nil {
 		return result, fmt.Errorf("failed to read campaign mapping file %w", err)
 	}

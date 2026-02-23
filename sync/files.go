@@ -58,12 +58,21 @@ func (em EmbeddedMappings) MustFindDefaultsMappingFileForTarget(target string) (
 	return em.MustFindRootMappingFile(fmt.Sprintf("defaults.%s.yaml", target))
 }
 
-// MustFindFirstCampaignMappingFileWithTargetByLabel finds a campaign mapping file by its label.
-// The label must exactly match the first dot-separated segment of the filename.
+// MustFindFirstCampaignMappingFileWithTargetByPath finds a campaign mapping file by its path.
+// The path must be in the format "<org>/<label>" where <org> is the org directory
+// and <label> must exactly match the first dot-separated segment of the filename.
 // Filename format: <LABEL>[.<target>].yaml
 // Returns the mapping file, the target, and any error.
-func (em EmbeddedMappings) MustFindFirstCampaignMappingFileWithTargetByLabel(label string) (result MappingFile, target string, err error) {
-	dir := path.Join(em.Root, "campaigns")
+func (em EmbeddedMappings) MustFindFirstCampaignMappingFileWithTargetByPath(mappingPath string) (result MappingFile, target string, err error) {
+	// Split path into org directory and file label
+	// e.g. "STAR/SSS_V001" → dir: "<root>/STAR", fileLabel: "SSS_V001"
+	index := strings.LastIndex(mappingPath, "/")
+	if index == -1 {
+		return result, target, fmt.Errorf("invalid mapping path %q: must contain org directory (e.g. ORG/LABEL)", mappingPath)
+	}
+	dir := path.Join(em.Root, mappingPath[:index])
+	fileLabel := mappingPath[index+1:]
+
 	var files []fs.DirEntry
 	files, err = em.Files.ReadDir(dir)
 	if err != nil {
@@ -74,13 +83,13 @@ func (em EmbeddedMappings) MustFindFirstCampaignMappingFileWithTargetByLabel(lab
 		name := strings.TrimSuffix(p, ".yaml")
 		name = strings.TrimSuffix(name, ".yml")
 		parts := strings.SplitN(name, ".", 2)
-		if parts[0] != label {
+		if parts[0] != fileLabel {
 			continue
 		}
 
 		// multiple matches are not supported - guard against misconfiguration
 		if result.Name != "" {
-			err = fmt.Errorf("found multiple mapping files with label: %s in dir: %s", label, dir)
+			err = fmt.Errorf("found multiple mapping files with path: %s in dir: %s", mappingPath, dir)
 			return result, target, err
 		}
 
@@ -97,7 +106,7 @@ func (em EmbeddedMappings) MustFindFirstCampaignMappingFileWithTargetByLabel(lab
 		}
 	}
 	if result.Name == "" {
-		err = fmt.Errorf("failed to find mapping file with label: %s in dir: %s", label, dir)
+		err = fmt.Errorf("failed to find mapping file with path: %s in dir: %s", mappingPath, dir)
 	}
 	return result, target, err
 }
