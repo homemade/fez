@@ -89,26 +89,27 @@ func campaignUUIDKeyForFlavour(flavour Flavour) (string, error) {
 
 // CampaignEnvVar represents a campaign environment variable with its path and UUID.
 type CampaignEnvVar struct {
-	Path string
+	Name string // Env var name (e.g. "STAR_SSS_2026_DEV")
+	Path string // MAPPING_PATH value (e.g. "STAR/SSS_2026_DEV")
 	UUID string
 }
 
 // FindAllCampaignEnvVars scans environment variables for JSON values containing
 // a campaign UUID key (determined by the initialised flavour) and a MAPPING_PATH.
-// Returns a map of path -> UUID for all matching env vars.
-func FindAllCampaignEnvVars() (map[string]CampaignEnvVar, error) {
+// Returns one entry per matching env var.
+func FindAllCampaignEnvVars() ([]CampaignEnvVar, error) {
 	campaignUUIDKey, err := campaignUUIDKeyForFlavour(GetInitialisedFlavour())
 	if err != nil {
 		return nil, err
 	}
 
-	result := make(map[string]CampaignEnvVar)
+	var result []CampaignEnvVar
 	for _, env := range os.Environ() {
 		parts := strings.SplitN(env, "=", 2)
 		if len(parts) != 2 {
 			continue
 		}
-		value := parts[1]
+		name, value := parts[0], parts[1]
 
 		var m map[string]string
 		if err := json.Unmarshal([]byte(value), &m); err != nil {
@@ -118,7 +119,7 @@ func FindAllCampaignEnvVars() (map[string]CampaignEnvVar, error) {
 		p, hasPath := m["MAPPING_PATH"]
 		uuid, hasUUID := m[campaignUUIDKey]
 		if hasPath && hasUUID {
-			result[p] = CampaignEnvVar{Path: p, UUID: uuid}
+			result = append(result, CampaignEnvVar{Name: name, Path: p, UUID: uuid})
 		}
 	}
 	return result, nil
