@@ -7,30 +7,18 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"net/http"
 	"strings"
 	"time"
 
-	"github.com/carlmjohnson/requests"
-	"github.com/iancoleman/strcase"
 	"github.com/tidwall/gjson"
 )
 
 // OrttoContactsMapper maps Raisely data to Ortto Contacts/CDP API format.
-// This implements the TargetMapper interface for the ortto-contacts target.
+// This implements the OrttoMapper interface for the ortto-contacts target.
 type OrttoContactsMapper struct {
-	RaiselyMapper
-	OrttoSyncContext
-}
-
-func (o OrttoContactsMapper) OrttoAPIBuilder() *requests.Builder {
-	result := requests.
-		URL(o.Config.API.Endpoints.Ortto).
-		Client(&http.Client{Timeout: HTTPRequestTimeout})
-	if o.RecordRequests {
-		result = result.Transport(requests.Record(nil, fmt.Sprintf("pkg/testdata/.requests/%s/ortto-contacts", o.Campaign)))
-	}
-	return result
+	*SyncContext
+	RaiselyMapper          RaiselyMapper
+	OrttoFetcherAndUpdater OrttoFetcherAndUpdater
 }
 
 // MapFundraisingPage maps a fundraising page to an Ortto contacts request.
@@ -43,19 +31,19 @@ func (o *OrttoContactsMapper) MapFundraisingPage(campaign *FundraisingCampaign, 
 		FindStrategy:  0, // Any  - first MergeBy field is prioritised, if a match is not found the second field is then used
 	}
 
-	data, err := o.FetchFundraiserData(p2pregistrationid, ctx)
+	data, err := o.RaiselyMapper.RaiselyFetcherAndUpdater.FetchFundraiserData(p2pregistrationid, ctx)
 	if err != nil {
 		return orttoRequest, err
 	}
 
 	var contact OrttoContact
 	contact.Fields = make(map[string]interface{})
-	o.MapFundraiserFields(data.Page.Source, &contact)
-	if err = o.ApplyFundraiserTransforms(&contact, campaign, ctx, false); err != nil {
+	o.RaiselyMapper.MapFundraiserFields(data.Page.Source, &contact)
+	if err = o.RaiselyMapper.ApplyFundraiserTransforms(&contact, campaign, ctx, false); err != nil {
 		return orttoRequest, err
 	}
 	// To support people leaving teams we also need to set any team field mappings to empty
-	o.ClearTeamFields(&contact)
+	o.RaiselyMapper.ClearTeamFields(&contact)
 
 	orttoRequest.Contacts = append(orttoRequest.Contacts, contact)
 
@@ -71,13 +59,13 @@ func (o *OrttoContactsMapper) MapTeamFundraisingPage(campaign *FundraisingCampai
 		FindStrategy:  0, // Any  - first MergeBy field is prioritised, if a match is not found the second field is then used
 	}
 
-	team, teamPage, err := o.FetchTeam(p2pteamid, ctx)
+	team, teamPage, err := o.RaiselyMapper.RaiselyFetcherAndUpdater.FetchTeam(p2pteamid, ctx)
 	if err != nil {
 		return result, err
 	}
 
 	var memberPages []FundraisingPage
-	memberPages, err = o.FetchTeamMembers(team, ctx)
+	memberPages, err = o.RaiselyMapper.RaiselyFetcherAndUpdater.FetchTeamMembers(team, ctx)
 	if err != nil {
 		return result, err
 	}
@@ -85,12 +73,12 @@ func (o *OrttoContactsMapper) MapTeamFundraisingPage(campaign *FundraisingCampai
 	for _, page := range memberPages {
 		var contact OrttoContact
 		contact.Fields = make(map[string]interface{})
-		o.MapFundraiserFields(page.Source, &contact)
-		o.MapTeamFields(teamPage.Source, &contact)
-		if err := o.ApplyFundraiserTransforms(&contact, campaign, ctx, false); err != nil {
+		o.RaiselyMapper.MapFundraiserFields(page.Source, &contact)
+		o.RaiselyMapper.MapTeamFields(teamPage.Source, &contact)
+		if err := o.RaiselyMapper.ApplyFundraiserTransforms(&contact, campaign, ctx, false); err != nil {
 			return result, err
 		}
-		if err := o.ApplyTeamTransforms(page, teamPage, &contact); err != nil {
+		if err := o.RaiselyMapper.ApplyTeamTransforms(page, teamPage, &contact); err != nil {
 			return result, err
 		}
 		result.Contacts = append(result.Contacts, contact)
@@ -124,8 +112,8 @@ func (o *OrttoContactsMapper) MapTrackingData(campaign *FundraisingCampaign, dat
 
 	var contact OrttoContact
 	contact.Fields = make(map[string]interface{})
-	o.MapFundraiserFields(source, &contact)
-	if err = o.ApplyFundraiserTransforms(&contact, campaign, ctx, false); err != nil {
+	o.RaiselyMapper.MapFundraiserFields(source, &contact)
+	if err = o.RaiselyMapper.ApplyFundraiserTransforms(&contact, campaign, ctx, false); err != nil {
 		return result, err
 	}
 
@@ -133,8 +121,9 @@ func (o *OrttoContactsMapper) MapTrackingData(campaign *FundraisingCampaign, dat
 	if !emailExists || email == "" {
 		return result, errors.New("missing required field in tracking data")
 	}
+	mergeFieldID := fmt.Sprintf("str:cm:%s-p2p-registration-id", o.Config.CampaignPrefix)
 	var existingContacts []OrttoContact
-	existingContacts, err = o.SearchForFundraisingPageByEmail(email, ctx)
+	existingContacts, err = o.OrttoFetcherAndUpdater.SearchForContactByEmail(email, mergeFieldID, ctx)
 	if err != nil {
 		return result, err
 	}
@@ -155,68 +144,8 @@ func (o *OrttoContactsMapper) SendRequest(req OrttoRequest, ctx context.Context)
 		return nil, fmt.Errorf("expected OrttoContactsRequest, got %T", req)
 	}
 
-	var result OrttoContactsResponse
-
-	err := o.OrttoAPIBuilder().
-		Path("/v1/person/merge").
-		Header("X-Api-Key", o.Config.API.Keys.Ortto).
-		BodyJSON(&contactsReq).
-		ToJSON(&result).
-		ErrorJSON(&result.Error).
-		Fetch(ctx)
-
+	result, err := o.OrttoFetcherAndUpdater.SendContactsMerge(contactsReq, ctx)
 	return result, err
-}
-
-// SearchForFundraisingPageByEmail searches Ortto for a contact by email that has a p2p registration id.
-func (o *OrttoContactsMapper) SearchForFundraisingPageByEmail(email string, ctx context.Context) ([]OrttoContact, error) {
-
-	// json.Marshal to safely escape email for interpolation into JSON body
-	emailJSON, err := json.Marshal(email)
-	if err != nil {
-		return nil, err
-	}
-
-	response := struct {
-		Contacts []OrttoContact `json:"contacts"`
-		Error    OrttoError
-	}{}
-
-	err = o.OrttoAPIBuilder().
-		Path("/v1/person/get").
-		Header("X-Api-Key", o.Config.API.Keys.Ortto).
-		Post().
-		BodyBytes([]byte(fmt.Sprintf(`
-		{
-			"limit": 1,
-			"offset": 0,
-			"fields": ["str:cm:%s-p2p-registration-id", "str::email"],
-			"filter": {
-				"$and": [
-				{
-					"$has_any_value": {
-					"field_id": "str:cm:%s-p2p-registration-id"
-					}
-				},
-				{
-					"$str::is": {
-					"field_id": "str::email",
-					"value": %s
-					}
-				}
-				]
-			}
-		}
-		`, o.Config.CampaignPrefix, o.Config.CampaignPrefix, emailJSON))).
-		ToJSON(&response).
-		ErrorJSON(&response.Error).
-		Fetch(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	return response.Contacts, nil
-
 }
 
 // ReconcileFundraisingPage compares a mapped contact against the existing Ortto contact and returns any differences.
@@ -237,21 +166,7 @@ func (o *OrttoContactsMapper) ReconcileFundraisingPage(p2pregistrationid string,
 		return result, err
 	}
 
-	response := struct {
-		Contacts []OrttoContact `json:"contacts"`
-		Error    OrttoError
-	}{}
-
-	err = o.OrttoAPIBuilder().
-		Path("/v1/person/get").
-		Header("X-Api-Key", o.Config.API.Keys.Ortto).
-		Post().
-		BodyBytes([]byte(fmt.Sprintf(`
-		{
-			"limit": 1,
-			"offset": 0,
-			"fields": %s,
-			"filter": {
+	filterJSON := fmt.Sprintf(`{
 				"$and": [
 				{
 					"$has_any_value": {
@@ -265,26 +180,22 @@ func (o *OrttoContactsMapper) ReconcileFundraisingPage(p2pregistrationid string,
 					}
 				}
 				]
-			}
-		}
-		`, fieldNames, o.Config.CampaignPrefix, p2pregistrationid))).
-		ToJSON(&response).
-		ErrorJSON(&response.Error).
-		Fetch(ctx)
+			}`, o.Config.CampaignPrefix, p2pregistrationid)
 
+	contacts, err := o.OrttoFetcherAndUpdater.GetContact(fieldNames, filterJSON, ctx)
 	if err != nil {
 		return result, err
 	}
 
-	if len(response.Contacts) > 1 {
+	if len(contacts) > 1 {
 		return result, fmt.Errorf("multiple ortto contacts found for p2p registration id %s", p2pregistrationid)
 	}
 
-	if len(response.Contacts) == 1 {
+	if len(contacts) == 1 {
 
-		result.Id = response.Contacts[0].Id
+		result.Id = contacts[0].Id
 
-		for k, orttoValue := range response.Contacts[0].Fields {
+		for k, orttoValue := range contacts[0].Fields {
 
 			sourceValue := contact.Fields[k]
 
@@ -331,84 +242,16 @@ func (o *OrttoContactsMapper) ReconcileFundraisingPage(p2pregistrationid string,
 // Returns a map of field names to their status (ok/missing).
 func (o *OrttoContactsMapper) CheckOrttoCustomFields(statusprocessing string, statusok string, statusmissing string, ctx context.Context) (map[string]string, error) {
 
-	result := make(map[string]string)
+	fieldsToCheck := make(map[string]string)
 	orttoTypes := make(map[string]string)
 	for _, v := range o.Config.FundraiserFieldMappings.Custom.AllKeys() {
-		result[v] = statusprocessing
+		fieldsToCheck[v] = statusprocessing
 		orttoTypes[v] = o.Config.FundraiserFieldMappings.Custom.AsOrttoFieldType(v)
 	}
 	for _, v := range o.Config.TeamFieldMappings.Custom.AllKeys() {
-		result[v] = statusprocessing
+		fieldsToCheck[v] = statusprocessing
 		orttoTypes[v] = o.Config.TeamFieldMappings.Custom.AsOrttoFieldType(v)
 	}
-	response := struct {
-		Fields []struct {
-			Field struct {
-				Id          string `json:"id"`
-				DisplayType string `json:"display_type"`
-			} `json:"field"`
-		} `json:"fields"`
-		Error OrttoError
-	}{}
-	err := o.OrttoAPIBuilder().
-		Path("/v1/person/custom-field/get").
-		Header("X-Api-Key", o.Config.API.Keys.Ortto).
-		BodyBytes(nil).
-		ToJSON(&response).
-		ErrorJSON(&response.Error).
-		Fetch(ctx)
-	if err != nil {
-		return result, err
-	}
 
-	for _, v := range response.Fields {
-		if _, exists := result[v.Field.Id]; exists {
-			// check Ortto type is correct for decimals and integers
-			if strings.HasPrefix(v.Field.Id, "int:") {
-				if v.Field.DisplayType == "decimal" {
-					_, decimalMappingExists := o.Config.FundraiserFieldMappings.Custom.Decimals[v.Field.Id]
-					if !decimalMappingExists {
-						_, decimalMappingExists = o.Config.TeamFieldMappings.Custom.Decimals[v.Field.Id]
-					}
-					if decimalMappingExists {
-						result[v.Field.Id] = statusok
-					}
-				}
-				if v.Field.DisplayType == "integer" {
-					_, integerMappingExists := o.Config.FundraiserFieldMappings.Custom.Integers[v.Field.Id]
-					if !integerMappingExists {
-						_, integerMappingExists = o.Config.TeamFieldMappings.Custom.Integers[v.Field.Id]
-					}
-					if integerMappingExists {
-						result[v.Field.Id] = statusok
-					}
-				}
-			} else {
-				result[v.Field.Id] = statusok
-			}
-		}
-	}
-
-	for k, v := range result {
-		if v != statusok {
-			// generate ortto label
-			orttoLabel := ""
-			keyParts := strings.Split(k, ":")
-			if len(keyParts) == 3 {
-				// the field name is in the last part of the key
-				fieldNameParts := strings.Split(keyParts[2], "-")
-				for i, s := range fieldNameParts {
-					if i == 0 { // first part of the field name is the prefix, which is upper cased in the label
-						orttoLabel = strings.ToUpper(s)
-					} else { // the other parts are converted to camel case for the label
-						orttoLabel = orttoLabel + " " + strcase.ToCamel(s)
-					}
-				}
-			}
-			result[k] = fmt.Sprintf(`%s %s (%s)`, statusmissing, orttoLabel, orttoTypes[k])
-		}
-	}
-
-	return result, err
-
+	return o.OrttoFetcherAndUpdater.CheckCustomFields(fieldsToCheck, orttoTypes, o.Config, statusprocessing, statusok, statusmissing, ctx)
 }

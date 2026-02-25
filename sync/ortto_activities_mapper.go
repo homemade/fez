@@ -6,20 +6,18 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"net/http"
 	"sort"
 	"strings"
 
-	"github.com/carlmjohnson/requests"
-	"github.com/iancoleman/strcase"
 	"github.com/tidwall/gjson"
 )
 
 // OrttoActivitiesMapper maps Raisely data to Ortto Activities API format.
-// This implements the TargetMapper interface for the ortto-activities target.
+// This implements the OrttoMapper interface for the ortto-activities target.
 type OrttoActivitiesMapper struct {
-	RaiselyMapper
-	OrttoSyncContext
+	*SyncContext
+	RaiselyMapper          RaiselyMapper
+	OrttoFetcherAndUpdater OrttoFetcherAndUpdater
 }
 
 // IsPersonField returns true if the field should be mapped to the person/contact record.
@@ -107,16 +105,6 @@ func (o OrttoActivitiesMapper) SeparateFieldsAndAttributesAndSortAttributes(acti
 
 }
 
-func (o OrttoActivitiesMapper) OrttoAPIBuilder() *requests.Builder {
-	result := requests.
-		URL(o.Config.API.Endpoints.Ortto).
-		Client(&http.Client{Timeout: HTTPRequestTimeout})
-	if o.RecordRequests {
-		result = result.Transport(requests.Record(nil, fmt.Sprintf("pkg/testdata/.requests/%s/ortto-activities", o.Campaign)))
-	}
-	return result
-}
-
 // MapFundraisingPage maps a fundraising page to an Ortto activities request.
 func (o *OrttoActivitiesMapper) MapFundraisingPage(campaign *FundraisingCampaign, p2pregistrationid string, ctx context.Context) (OrttoRequest, error) {
 
@@ -136,7 +124,7 @@ func (o *OrttoActivitiesMapper) MapFundraisingPage(campaign *FundraisingCampaign
 		MergeStrategy: 2, // Overwrite existing
 	}
 
-	data, err := o.FetchFundraiserData(p2pregistrationid, ctx)
+	data, err := o.RaiselyMapper.RaiselyFetcherAndUpdater.FetchFundraiserData(p2pregistrationid, ctx)
 	if err != nil {
 		return orttoRequest, err
 	}
@@ -145,15 +133,15 @@ func (o *OrttoActivitiesMapper) MapFundraisingPage(campaign *FundraisingCampaign
 	activity := OrttoActivity{
 		ActivityID: o.Config.API.Settings.OrttoActivityId,
 		Fields:     make(map[string]interface{}),
-		Attributes: o.OrttoSyncContext.AsOrttoActivitiesAttributes(),
+		Attributes: NewOrttoSyncContext(o.SyncContext).AsOrttoActivitiesAttributes(),
 	}
 
-	o.MapFundraiserFields(data.Page.Source, &activity)
-	if err = o.ApplyFundraiserTransforms(&activity, campaign, ctx, false); err != nil {
+	o.RaiselyMapper.MapFundraiserFields(data.Page.Source, &activity)
+	if err = o.RaiselyMapper.ApplyFundraiserTransforms(&activity, campaign, ctx, false); err != nil {
 		return orttoRequest, err
 	}
 	// To support people leaving teams we also need to set any team field mappings to empty
-	o.ClearTeamFields(&activity)
+	o.RaiselyMapper.ClearTeamFields(&activity)
 
 	// Separate person fields (Fields) from activity attributes (Attributes)
 	o.SeparateFieldsAndAttributesAndSortAttributes(&activity)
@@ -187,13 +175,13 @@ func (o *OrttoActivitiesMapper) MapTeamFundraisingPage(campaign *FundraisingCamp
 		MergeStrategy: 2, // Overwrite existing
 	}
 
-	team, teamPage, err := o.FetchTeam(p2pteamid, ctx)
+	team, teamPage, err := o.RaiselyMapper.RaiselyFetcherAndUpdater.FetchTeam(p2pteamid, ctx)
 	if err != nil {
 		return result, err
 	}
 
 	var memberPages []FundraisingPage
-	memberPages, err = o.FetchTeamMembers(team, ctx)
+	memberPages, err = o.RaiselyMapper.RaiselyFetcherAndUpdater.FetchTeamMembers(team, ctx)
 	if err != nil {
 		return result, err
 	}
@@ -202,15 +190,15 @@ func (o *OrttoActivitiesMapper) MapTeamFundraisingPage(campaign *FundraisingCamp
 		activity := OrttoActivity{
 			ActivityID: o.Config.API.Settings.OrttoActivityId,
 			Fields:     make(map[string]interface{}),
-			Attributes: o.OrttoSyncContext.AsOrttoActivitiesAttributes(),
+			Attributes: NewOrttoSyncContext(o.SyncContext).AsOrttoActivitiesAttributes(),
 		}
 
-		o.MapFundraiserFields(page.Source, &activity)
-		o.MapTeamFields(teamPage.Source, &activity)
-		if err := o.ApplyFundraiserTransforms(&activity, campaign, ctx, false); err != nil {
+		o.RaiselyMapper.MapFundraiserFields(page.Source, &activity)
+		o.RaiselyMapper.MapTeamFields(teamPage.Source, &activity)
+		if err := o.RaiselyMapper.ApplyFundraiserTransforms(&activity, campaign, ctx, false); err != nil {
 			return result, err
 		}
-		if err := o.ApplyTeamTransforms(page, teamPage, &activity); err != nil {
+		if err := o.RaiselyMapper.ApplyTeamTransforms(page, teamPage, &activity); err != nil {
 			return result, err
 		}
 
@@ -263,11 +251,11 @@ func (o *OrttoActivitiesMapper) MapTrackingData(campaign *FundraisingCampaign, d
 	activity := OrttoActivity{
 		ActivityID: o.Config.API.Settings.OrttoActivityId,
 		Fields:     make(map[string]interface{}),
-		Attributes: o.OrttoSyncContext.AsOrttoActivitiesAttributes(),
+		Attributes: NewOrttoSyncContext(o.SyncContext).AsOrttoActivitiesAttributes(),
 	}
 
-	o.MapFundraiserFields(source, &activity)
-	if err := o.ApplyFundraiserTransforms(&activity, campaign, ctx, false); err != nil {
+	o.RaiselyMapper.MapFundraiserFields(source, &activity)
+	if err := o.RaiselyMapper.ApplyFundraiserTransforms(&activity, campaign, ctx, false); err != nil {
 		return result, err
 	}
 
@@ -280,7 +268,7 @@ func (o *OrttoActivitiesMapper) MapTrackingData(campaign *FundraisingCampaign, d
 	}
 
 	var existingContacts []OrttoContact
-	existingContacts, err = o.SearchForFundraiserByEmail(email, ctx)
+	existingContacts, err = o.OrttoFetcherAndUpdater.SearchForContactByEmail(email, o.Config.API.Settings.OrttoFundraiserMergeField, ctx)
 	if err != nil {
 		return result, err
 	}
@@ -295,57 +283,6 @@ func (o *OrttoActivitiesMapper) MapTrackingData(campaign *FundraisingCampaign, d
 	return result, nil
 }
 
-// SearchForFundraiserByEmail searches Ortto for a contact by email that has the merge field set.
-func (o *OrttoActivitiesMapper) SearchForFundraiserByEmail(email string, ctx context.Context) ([]OrttoContact, error) {
-
-	// json.Marshal to safely escape email for interpolation into JSON body
-	emailJSON, err := json.Marshal(email)
-	if err != nil {
-		return nil, err
-	}
-
-	response := struct {
-		Contacts []OrttoContact `json:"contacts"`
-		Error    OrttoError
-	}{}
-
-	err = o.OrttoAPIBuilder().
-		Path("/v1/person/get").
-		Header("X-Api-Key", o.Config.API.Keys.Ortto).
-		Post().
-		BodyBytes([]byte(fmt.Sprintf(`
-		{
-			"limit": 1,
-			"offset": 0,
-			"fields": ["%s", "str::email"],
-			"filter": {
-				"$and": [
-				{
-					"$has_any_value": {
-					"field_id": "%s"
-					}
-				},
-				{
-					"$str::is": {
-					"field_id": "str::email",
-					"value": %s
-					}
-				}
-				]
-			}
-		}
-		`, o.Config.API.Settings.OrttoFundraiserMergeField, o.Config.API.Settings.OrttoFundraiserMergeField, emailJSON))).
-		ToJSON(&response).
-		ErrorJSON(&response.Error).
-		Fetch(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	return response.Contacts, nil
-
-}
-
 // SendRequest sends an Ortto activities request to the Ortto API.
 func (o *OrttoActivitiesMapper) SendRequest(req OrttoRequest, ctx context.Context) (OrttoResponse, error) {
 	activitiesReq, ok := req.(OrttoActivitiesRequest)
@@ -353,16 +290,7 @@ func (o *OrttoActivitiesMapper) SendRequest(req OrttoRequest, ctx context.Contex
 		return nil, fmt.Errorf("expected OrttoActivitiesRequest, got %T", req)
 	}
 
-	var result OrttoActivitiesResponse
-
-	err := o.OrttoAPIBuilder().
-		Path("/v1/activities/create").
-		Header("X-Api-Key", o.Config.API.Keys.Ortto).
-		BodyJSON(&activitiesReq).
-		ToJSON(&result).
-		ErrorJSON(&result.Error).
-		Fetch(ctx)
-
+	result, err := o.OrttoFetcherAndUpdater.SendActivitiesCreate(activitiesReq, ctx)
 	return result, err
 }
 
@@ -620,105 +548,24 @@ func (o OrttoActivitiesMapper) extractFieldName(fieldID string) string {
 // CreateActivityDefinition creates an activity definition in Ortto.
 func (o *OrttoActivitiesMapper) CreateActivityDefinition(ctx context.Context, trackingconfig Config) (ActivityDefinitionResponse, error) {
 
-	var response ActivityDefinitionResponse
-
 	request, err := o.BuildActivityDefinitionRequest(trackingconfig)
 	if err != nil {
-		return response, err
+		return ActivityDefinitionResponse{}, err
 	}
 
-	err = o.OrttoAPIBuilder().
-		Path("/v1/definitions/activity/create").
-		Header("X-Api-Key", o.Config.API.Keys.Ortto).
-		BodyJSON(&request).
-		ToJSON(&response).
-		Fetch(ctx)
-
-	if err != nil {
-		return response, fmt.Errorf("failed to create activity definition: %w", err)
-	}
-
-	return response, nil
+	return o.OrttoFetcherAndUpdater.CreateActivityDefinition(request, ctx)
 }
 
 // CheckOrttoCustomFields checks that the Ortto custom fields are set up correctly for activities.
 func (o *OrttoActivitiesMapper) CheckOrttoCustomFields(statusprocessing string, statusok string, statusmissing string, ctx context.Context) (map[string]string, error) {
-	result := make(map[string]string)
+	fieldsToCheck := make(map[string]string)
 	orttoTypes := make(map[string]string)
-	result[o.Config.API.Settings.OrttoFundraiserMergeField] = statusprocessing
+	fieldsToCheck[o.Config.API.Settings.OrttoFundraiserMergeField] = statusprocessing
 	orttoTypes[o.Config.API.Settings.OrttoFundraiserMergeField] = "Text" // TODO determine type from field
 	if o.Config.API.Settings.OrttoFundraiserSnapshotField != "" {
-		result[o.Config.API.Settings.OrttoFundraiserSnapshotField] = statusprocessing
+		fieldsToCheck[o.Config.API.Settings.OrttoFundraiserSnapshotField] = statusprocessing
 		orttoTypes[o.Config.API.Settings.OrttoFundraiserSnapshotField] = "Object" // TODO determine type from field
 	}
 
-	response := struct {
-		Fields []struct {
-			Field struct {
-				Id          string `json:"id"`
-				DisplayType string `json:"display_type"`
-			} `json:"field"`
-		} `json:"fields"`
-		Error OrttoError
-	}{}
-	err := o.OrttoAPIBuilder().
-		Path("/v1/person/custom-field/get").
-		Header("X-Api-Key", o.Config.API.Keys.Ortto).
-		BodyBytes(nil).
-		ToJSON(&response).
-		ErrorJSON(&response.Error).
-		Fetch(ctx)
-	if err != nil {
-		return result, err
-	}
-
-	for _, v := range response.Fields {
-		if _, exists := result[v.Field.Id]; exists {
-			// check Ortto type is correct for decimals and integers
-			if strings.HasPrefix(v.Field.Id, "int:") {
-				if v.Field.DisplayType == "decimal" {
-					_, decimalMappingExists := o.Config.FundraiserFieldMappings.Custom.Decimals[v.Field.Id]
-					if !decimalMappingExists {
-						_, decimalMappingExists = o.Config.TeamFieldMappings.Custom.Decimals[v.Field.Id]
-					}
-					if decimalMappingExists {
-						result[v.Field.Id] = statusok
-					}
-				}
-				if v.Field.DisplayType == "integer" {
-					_, integerMappingExists := o.Config.FundraiserFieldMappings.Custom.Integers[v.Field.Id]
-					if !integerMappingExists {
-						_, integerMappingExists = o.Config.TeamFieldMappings.Custom.Integers[v.Field.Id]
-					}
-					if integerMappingExists {
-						result[v.Field.Id] = statusok
-					}
-				}
-			} else {
-				result[v.Field.Id] = statusok
-			}
-		}
-	}
-
-	for k, v := range result {
-		if v != statusok {
-			// generate ortto label
-			orttoLabel := ""
-			keyParts := strings.Split(k, ":")
-			if len(keyParts) == 3 {
-				// the field name is in the last part of the key
-				fieldNameParts := strings.Split(keyParts[2], "-")
-				for i, s := range fieldNameParts {
-					if i == 0 { // first part of the field name is the prefix, which is upper cased in the label
-						orttoLabel = strings.ToUpper(s)
-					} else { // the other parts are converted to camel case for the label
-						orttoLabel = orttoLabel + " " + strcase.ToCamel(s)
-					}
-				}
-			}
-			result[k] = fmt.Sprintf(`%s %s (%s)`, statusmissing, orttoLabel, orttoTypes[k])
-		}
-	}
-
-	return result, err
+	return o.OrttoFetcherAndUpdater.CheckCustomFields(fieldsToCheck, orttoTypes, o.Config, statusprocessing, statusok, statusmissing, ctx)
 }

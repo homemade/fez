@@ -74,8 +74,21 @@ type OrttoSyncContext struct {
 	TriggerSubType   string
 	TriggerId        string
 	TriggerCreatedAt string
-	CampaignId       string
+	Campaign         string
 	CampaignName     string
+}
+
+// NewOrttoSyncContext creates an OrttoSyncContext from a SyncContext.
+func NewOrttoSyncContext(sc *SyncContext) OrttoSyncContext {
+	return OrttoSyncContext{
+		Source:           sc.Source,
+		TriggerType:      sc.TriggerType,
+		TriggerSubType:   sc.TriggerSubType,
+		TriggerId:        sc.TriggerId,
+		TriggerCreatedAt: sc.TriggerCreatedAt,
+		Campaign:         sc.Campaign,
+		CampaignName:     sc.CampaignName,
+	}
 }
 
 func (c OrttoSyncContext) AsOrttoActivitiesAttributes() OrttoAttributes {
@@ -93,7 +106,7 @@ func (c OrttoSyncContext) AsOrttoActivitiesAttributes() OrttoAttributes {
 		TriggerSubType   string `json:"Trigger-subtype,omitempty"`
 		TriggerId        string `json:"Trigger-id,omitempty"`
 		TriggerCreatedAt string `json:"Trigger-created-at"`
-		CampaignId       string `json:"Campaign-id"`
+		Campaign         string `json:"Campaign"`
 		CampaignName     string `json:"Campaign-name"`
 	}{
 		Source:           c.Source,
@@ -101,7 +114,7 @@ func (c OrttoSyncContext) AsOrttoActivitiesAttributes() OrttoAttributes {
 		TriggerSubType:   c.TriggerSubType,
 		TriggerId:        c.TriggerId,
 		TriggerCreatedAt: triggerCreatedAtFormatted,
-		CampaignId:       c.CampaignId,
+		Campaign:         c.Campaign,
 		CampaignName:     c.CampaignName,
 	}
 	objectWrapper := make(OrttoAttributes)
@@ -113,8 +126,8 @@ func (c OrttoSyncContext) AsOrttoActivitiesAttributes() OrttoAttributes {
 // Each target (e.g., ortto-contacts, ortto-activities) has its own request type
 // that implements this interface.
 type OrttoRequest interface {
-	ItemCount() int                                          // Returns the number of items (contacts or activities)
-	AsOrttoContactsRequest() (OrttoContactsRequest, bool)    // Returns (request, true) if contacts request, (zero, false) otherwise
+	ItemCount() int                                           // Returns the number of items (contacts or activities)
+	AsOrttoContactsRequest() (OrttoContactsRequest, bool)     // Returns (request, true) if contacts request, (zero, false) otherwise
 	AsOrttoActivitiesRequest() (OrttoActivitiesRequest, bool) // Returns (request, true) if activities request, (zero, false) otherwise
 }
 
@@ -134,24 +147,29 @@ type OrttoMapper interface {
 	SendRequest(req OrttoRequest, ctx context.Context) (OrttoResponse, error)
 }
 
-// NewOrttoMapper creates a OrttoMapper based on the target specified in the config.
+// NewOrttoMapper creates an OrttoMapper based on the target specified in the SyncContext's config.
 // If target is empty or "ortto-contacts", it returns an OrttoContactsMapper.
 // If target is "ortto-activities", it returns an OrttoActivitiesMapper.
-func NewOrttoMapper(config Config, orttoctx OrttoSyncContext, recordRequests bool) OrttoMapper {
+func NewOrttoMapper(sc *SyncContext) OrttoMapper {
 	mustBeInitialised()
 
-	mapper := RaiselyMapper{
-		RaiselyFetcherAndUpdater: RaiselyFetcherAndUpdater{
-			Campaign:       orttoctx.CampaignId,
-			Config:         config,
-			RecordRequests: recordRequests,
-		},
-	}
-	switch config.Target {
+	raiselyFetcherAndUpdater := &RaiselyFetcherAndUpdater{SyncContext: sc}
+	orttoFetcherAndUpdater := OrttoFetcherAndUpdater{SyncContext: sc}
+	raiselyMapper := RaiselyMapper{SyncContext: sc, RaiselyFetcherAndUpdater: raiselyFetcherAndUpdater}
+
+	switch sc.Config.Target {
 	case "ortto-activities":
-		return &OrttoActivitiesMapper{RaiselyMapper: mapper, OrttoSyncContext: orttoctx}
+		return &OrttoActivitiesMapper{
+			SyncContext:            sc,
+			RaiselyMapper:          raiselyMapper,
+			OrttoFetcherAndUpdater: orttoFetcherAndUpdater,
+		}
 	default: // "", "ortto-contacts"
-		return &OrttoContactsMapper{RaiselyMapper: mapper, OrttoSyncContext: orttoctx}
+		return &OrttoContactsMapper{
+			SyncContext:            sc,
+			RaiselyMapper:          raiselyMapper,
+			OrttoFetcherAndUpdater: orttoFetcherAndUpdater,
+		}
 	}
 }
 

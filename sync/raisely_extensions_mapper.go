@@ -8,7 +8,8 @@ import (
 // This is separate from Ortto integration - it reads from Raisely, computes extensions
 // (like streaks), and writes the results back to Raisely fundraising pages.
 type RaiselyExtensionsMapper struct {
-	RaiselyFetcherAndUpdater
+	*SyncContext
+	RaiselyFetcherAndUpdater *RaiselyFetcherAndUpdater
 }
 
 // MapFundraisingPageForExtensions computes extension data for a fundraising page
@@ -19,7 +20,7 @@ func (r *RaiselyExtensionsMapper) MapFundraisingPageForExtensions(campaign *Fund
 		P2PId: p2pregistrationid,
 	}
 
-	data, err := r.FetchFundraiserData(p2pregistrationid, ctx)
+	data, err := r.RaiselyFetcherAndUpdater.FetchFundraiserData(p2pregistrationid, ctx)
 	if err != nil {
 		return updateFundraisingPageRequest, err
 	}
@@ -36,7 +37,7 @@ func (r *RaiselyExtensionsMapper) MapTeamFundraisingPageForExtensions(campaign *
 
 	var updateFundraisingPageRequests []UpdateRaiselyDataRequest
 
-	team, teamFundraisingPage, err := r.FetchTeam(p2pteamid, ctx)
+	team, teamFundraisingPage, err := r.RaiselyFetcherAndUpdater.FetchTeam(p2pteamid, ctx)
 	if err != nil {
 		return updateFundraisingPageRequests, err
 	}

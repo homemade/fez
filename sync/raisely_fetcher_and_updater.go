@@ -391,11 +391,9 @@ func (d *FundraisingProfileExerciseLogs) fetchRaiselyData(params fetchRaiselyDat
 }
 
 // RaiselyFetcherAndUpdater handles fetching data from the Raisely API.
-// It encapsulates the common fields and patterns used across all mappers.
+// It embeds *SyncContext for shared sync configuration.
 type RaiselyFetcherAndUpdater struct {
-	Campaign       string
-	Config         Config
-	RecordRequests bool
+	*SyncContext
 }
 
 // FetchFundraisingCampaign fetches the campaign data from Raisely.
