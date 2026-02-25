@@ -334,8 +334,8 @@ type ActivityDefinitionResponse struct {
 }
 
 // BuildActivityDefinitionRequest creates an activity definition request from the config field mappings.
-// The activity name is read from Config.API.Settings.OrttoActivityName.
-func (o OrttoActivitiesMapper) BuildActivityDefinitionRequest(trackingconfig Config) (ActivityDefinitionRequest, error) {
+// The activityname parameter sets the display name for the activity in Ortto.
+func (o OrttoActivitiesMapper) BuildActivityDefinitionRequest(activityname string, trackingconfig Config) (ActivityDefinitionRequest, error) {
 
 	var request ActivityDefinitionRequest
 
@@ -343,13 +343,13 @@ func (o OrttoActivitiesMapper) BuildActivityDefinitionRequest(trackingconfig Con
 	if o.Config.API.Settings.OrttoFundraiserMergeField == "" {
 		return request, errors.New("ortto fundraiser merge field is required for ortto-activities target config (api.settings.orttoFundraiserMergeField)")
 	}
-	if o.Config.API.Settings.OrttoActivityName == "" {
-		return request, errors.New("ortto activity name is required for ortto-activities target config (api.settings.orttoActivityName)")
+	if activityname == "" {
+		return request, errors.New("activity name is required")
 	}
 
-	name := o.Config.API.Settings.OrttoActivityName
+	name := activityname
 	request = ActivityDefinitionRequest{
-		Name:                 o.Config.API.Settings.OrttoActivityName,
+		Name:                 activityname,
 		IconID:               "reload-illustration-icon",
 		TrackConversionValue: false,
 		Touch:                true,
@@ -546,14 +546,78 @@ func (o OrttoActivitiesMapper) extractFieldName(fieldID string) string {
 }
 
 // CreateActivityDefinition creates an activity definition in Ortto.
-func (o *OrttoActivitiesMapper) CreateActivityDefinition(ctx context.Context, trackingconfig Config) (ActivityDefinitionResponse, error) {
+func (o *OrttoActivitiesMapper) CreateActivityDefinition(ctx context.Context, activityname string, trackingconfig Config) (ActivityDefinitionResponse, error) {
 
-	request, err := o.BuildActivityDefinitionRequest(trackingconfig)
+	request, err := o.BuildActivityDefinitionRequest(activityname, trackingconfig)
 	if err != nil {
 		return ActivityDefinitionResponse{}, err
 	}
 
 	return o.OrttoFetcherAndUpdater.CreateActivityDefinition(request, ctx)
+}
+
+// EnsureCustomPersonFields checks for missing Ortto custom person fields and creates them.
+// Builtin fields (containing "::") are skipped as they already exist in Ortto.
+// Returns the list of field IDs that were created.
+func (o *OrttoActivitiesMapper) EnsureCustomPersonFields(ctx context.Context) ([]string, error) {
+	existingFieldIDs, err := o.OrttoFetcherAndUpdater.ListCustomPersonFields(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	existingSet := make(map[string]bool)
+	for _, id := range existingFieldIDs {
+		existingSet[id] = true
+	}
+
+	personFieldIDs := o.PersonFieldIDs()
+
+	var created []string
+	for _, fieldID := range personFieldIDs {
+		if strings.Contains(fieldID, "::") {
+			continue
+		}
+		if existingSet[fieldID] {
+			continue
+		}
+
+		// Look up the API field type from the config mappings
+		fieldType := o.Config.FundraiserFieldMappings.Custom.AsOrttoAPIFieldType(fieldID)
+		if o.Config.FundraiserFieldMappings.Custom.AsOrttoFieldType(fieldID) == "Unknown" {
+			fieldType = o.Config.TeamFieldMappings.Custom.AsOrttoAPIFieldType(fieldID)
+		}
+
+		fieldName := labelFromFieldID(fieldID)
+		if err := o.OrttoFetcherAndUpdater.CreateCustomPersonField(fieldName, fieldType, ctx); err != nil {
+			return created, fmt.Errorf("failed to create field %s: %w", fieldID, err)
+		}
+		created = append(created, fieldID)
+	}
+
+	return created, nil
+}
+
+// labelFromFieldID derives a display label from an Ortto field ID.
+// e.g., "str:cm:raisely-user-id" -> "RAISELY User Id"
+// This follows the same convention as CheckOrttoCustomFields.
+func labelFromFieldID(fieldID string) string {
+	keyParts := strings.Split(fieldID, ":")
+	if len(keyParts) != 3 {
+		return fieldID
+	}
+	fieldNameParts := strings.Split(keyParts[2], "-")
+	label := ""
+	for i, s := range fieldNameParts {
+		if s == "" {
+			continue
+		}
+		if i == 0 {
+			label = strings.ToUpper(s)
+		} else {
+			label = label + " " + strings.ToUpper(s[:1]) + s[1:]
+		}
+	}
+	return label
 }
 
 // CheckOrttoCustomFields checks that the Ortto custom fields are set up correctly for activities.

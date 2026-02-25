@@ -36,10 +36,10 @@ type APISettings struct {
 	}
 	// Settings contains extra API values needed for syncing.
 	Settings struct {
-		OrttoActivityName            string `yaml:"orttoActivityName"`
-		OrttoActivityId              string `yaml:"orttoActivityId"` // Required if Target is "ortto-activities" (Ortto Activities API)
-		OrttoFundraiserSnapshotField string `yaml:"orttoFundraiserSnapshotField"`
-		OrttoFundraiserMergeField    string `yaml:"orttoFundraiserMergeField"` // Required if Target is "ortto-activities" (Ortto Activities API)
+		OrttoActivityId              string   `yaml:"orttoActivityId"` // Required if Target is "ortto-activities" (Ortto Activities API)
+		OrttoFundraiserSnapshotField string   `yaml:"orttoFundraiserSnapshotField"`
+		OrttoFundraiserMergeField    string   `yaml:"orttoFundraiserMergeField"` // Required if Target is "ortto-activities" (Ortto Activities API)
+		RaiselyWebhookEvents         []string `yaml:"raiselyWebhookEvents"`
 	}
 	Endpoints struct {
 		Ortto string
@@ -155,6 +155,31 @@ func (m FieldMappings) AsOrttoFieldType(key string) string {
 		}
 	}
 	return "Unknown"
+}
+
+// AsOrttoAPIFieldType returns the Ortto API type string for a given field key.
+// This maps to the type values accepted by the /v1/person/custom-field/create endpoint.
+func (m FieldMappings) AsOrttoAPIFieldType(key string) string {
+	switch m.AsOrttoFieldType(key) {
+	case "Text":
+		return "text"
+	case "Long text":
+		return "large_text"
+	case "Decimal number":
+		return "decimal"
+	case "Number":
+		return "integer"
+	case "Boolean":
+		return "bool"
+	case "Time and date":
+		return "time"
+	case "Phone number":
+		return "phone"
+	case "Geo":
+		return "geo"
+	default:
+		return "text"
+	}
 }
 
 func FieldMapsKeys(m map[string]string) []string {
