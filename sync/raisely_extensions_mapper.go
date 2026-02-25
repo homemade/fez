@@ -14,13 +14,13 @@ type RaiselyExtensionsMapper struct {
 
 // MapFundraisingPageForExtensions computes extension data for a fundraising page
 // and returns an UpdateRaiselyDataRequest to write the results back to Raisely.
-func (r *RaiselyExtensionsMapper) MapFundraisingPageForExtensions(campaign *FundraisingCampaign, p2pregistrationid string, ctx context.Context) (UpdateRaiselyDataRequest, error) {
+func (r *RaiselyExtensionsMapper) MapFundraisingPageForExtensions(campaign *FundraisingCampaign, p2pRegistrationID string, ctx context.Context) (UpdateRaiselyDataRequest, error) {
 
 	updateFundraisingPageRequest := UpdateRaiselyDataRequest{
-		P2PId: p2pregistrationid,
+		P2PID: p2pRegistrationID,
 	}
 
-	data, err := r.RaiselyFetcherAndUpdater.FetchFundraiserData(p2pregistrationid, ctx)
+	data, err := r.RaiselyFetcherAndUpdater.FetchFundraiserData(p2pRegistrationID, ctx)
 	if err != nil {
 		return updateFundraisingPageRequest, err
 	}
@@ -33,11 +33,11 @@ func (r *RaiselyExtensionsMapper) MapFundraisingPageForExtensions(campaign *Fund
 
 // MapTeamFundraisingPageForExtensions computes extension data for a team and all its members,
 // returning UpdateRaiselyDataRequests to write the results back to Raisely.
-func (r *RaiselyExtensionsMapper) MapTeamFundraisingPageForExtensions(campaign *FundraisingCampaign, p2pteamid string, ctx context.Context) ([]UpdateRaiselyDataRequest, error) {
+func (r *RaiselyExtensionsMapper) MapTeamFundraisingPageForExtensions(campaign *FundraisingCampaign, p2pTeamID string, ctx context.Context) ([]UpdateRaiselyDataRequest, error) {
 
 	var updateFundraisingPageRequests []UpdateRaiselyDataRequest
 
-	team, teamFundraisingPage, err := r.RaiselyFetcherAndUpdater.FetchTeam(p2pteamid, ctx)
+	team, teamFundraisingPage, err := r.RaiselyFetcherAndUpdater.FetchTeam(p2pTeamID, ctx)
 	if err != nil {
 		return updateFundraisingPageRequests, err
 	}
@@ -45,7 +45,7 @@ func (r *RaiselyExtensionsMapper) MapTeamFundraisingPageForExtensions(campaign *
 	teamExtensions := TeamExtensions{r.Config.TeamExtensions, campaign, teamFundraisingPage}
 
 	updateTeamFundraisingPageRequest := UpdateRaiselyDataRequest{
-		P2PId: p2pteamid,
+		P2PID: p2pTeamID,
 	}
 	updateTeamFundraisingPageRequest.JSON, err = ApplyRaiselyTeamExtensions(teamExtensions)
 	if err != nil {
@@ -55,7 +55,7 @@ func (r *RaiselyExtensionsMapper) MapTeamFundraisingPageForExtensions(campaign *
 	updateFundraisingPageRequests = append(updateFundraisingPageRequests, updateTeamFundraisingPageRequest)
 
 	for _, teamMember := range team.TeamMembers {
-		updateFundraisingPageRequest, err := r.MapFundraisingPageForExtensions(campaign, teamMember.P2PId, ctx)
+		updateFundraisingPageRequest, err := r.MapFundraisingPageForExtensions(campaign, teamMember.P2PID, ctx)
 		if err != nil {
 			return updateFundraisingPageRequests, err
 		}

@@ -13,7 +13,7 @@ type SyncContext struct {
 	Source           string
 	TriggerType      string
 	TriggerSubType   string
-	TriggerId        string
+	TriggerID        string
 	TriggerCreatedAt string
 	CampaignName     string
 }

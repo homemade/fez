@@ -29,7 +29,7 @@ func ConfigWithCRMFieldMapper(mapper CRMFieldMapper) ConfigOption {
 // (e.g. "RAISELY_CAMPAIGN_UUID" for the Raisely2Ortto flavour).
 // Returns the env var name and the MAPPING_PATH value.
 // Returns an error if multiple env vars match the same UUID, or if MAPPING_PATH is missing.
-func FindCampaignEnvVar(campaignuuidkey string, campaignuuid string) (envVarName string, mappingPath string, err error) {
+func FindCampaignEnvVar(campaignUUIDKey string, campaignUUID string) (envVarName string, mappingPath string, err error) {
 	type match struct {
 		name string
 		path string
@@ -49,14 +49,14 @@ func FindCampaignEnvVar(campaignuuidkey string, campaignuuid string) (envVarName
 			continue
 		}
 
-		uuid, ok := m[campaignuuidkey]
-		if !ok || uuid != campaignuuid {
+		uuid, ok := m[campaignUUIDKey]
+		if !ok || uuid != campaignUUID {
 			continue
 		}
 
 		p, ok := m["MAPPING_PATH"]
 		if !ok || p == "" {
-			return "", "", fmt.Errorf("env var %q contains %s but is missing MAPPING_PATH", name, campaignuuidkey)
+			return "", "", fmt.Errorf("env var %q contains %s but is missing MAPPING_PATH", name, campaignUUIDKey)
 		}
 
 		matches = append(matches, match{name: name, path: p})
@@ -70,7 +70,7 @@ func FindCampaignEnvVar(campaignuuidkey string, campaignuuid string) (envVarName
 		for i, m := range matches {
 			names[i] = m.name
 		}
-		return "", "", fmt.Errorf("found multiple env vars with %s %q: %s", campaignuuidkey, campaignuuid, strings.Join(names, ", "))
+		return "", "", fmt.Errorf("found multiple env vars with %s %q: %s", campaignUUIDKey, campaignUUID, strings.Join(names, ", "))
 	}
 
 	return matches[0].name, matches[0].path, nil
@@ -125,7 +125,7 @@ func FindAllCampaignEnvVars() ([]CampaignEnvVar, error) {
 	return result, nil
 }
 
-func LoadCampaignConfigFromEnvironment(embeddedmappings EmbeddedMappings, campaign string, opts ...ConfigOption) (Config, error) {
+func LoadCampaignConfigFromEnvironment(embeddedMappings EmbeddedMappings, campaign string, opts ...ConfigOption) (Config, error) {
 	mustBeInitialised()
 
 	var options configOptions
@@ -147,18 +147,18 @@ func LoadCampaignConfigFromEnvironment(embeddedmappings EmbeddedMappings, campai
 	}
 
 	// Use mapping path to find file
-	campaignMappingFile, target, err := embeddedmappings.MustFindFirstCampaignMappingFileWithTargetByPath(mappingPath)
+	campaignMappingFile, target, err := embeddedMappings.MustFindFirstCampaignMappingFileWithTargetByPath(mappingPath)
 	if err != nil {
 		return result, fmt.Errorf("failed to read campaign mapping file %w", err)
 	}
 
 	// Load required and defaults for this target
-	requiredMappingFile, err := embeddedmappings.MustFindRequiredMappingFileForTarget(target)
+	requiredMappingFile, err := embeddedMappings.MustFindRequiredMappingFileForTarget(target)
 	if err != nil {
 		return result, fmt.Errorf("failed to read required mapping file %w", err)
 	}
 
-	defaultsMappingFile, err := embeddedmappings.MustFindDefaultsMappingFileForTarget(target)
+	defaultsMappingFile, err := embeddedMappings.MustFindDefaultsMappingFileForTarget(target)
 	if err != nil {
 		return result, fmt.Errorf("failed to read defaults mapping file %w", err)
 	}

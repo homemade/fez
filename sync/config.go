@@ -36,7 +36,7 @@ type APISettings struct {
 	}
 	// Settings contains extra API values needed for syncing.
 	Settings struct {
-		OrttoActivityId              string   `yaml:"orttoActivityId"` // Required if Target is "ortto-activities" (Ortto Activities API)
+		OrttoActivityID              string   `yaml:"orttoActivityId"` // Required if Target is "ortto-activities" (Ortto Activities API)
 		OrttoFundraiserSnapshotField string   `yaml:"orttoFundraiserSnapshotField"`
 		OrttoFundraiserMergeField    string   `yaml:"orttoFundraiserMergeField"` // Required if Target is "ortto-activities" (Ortto Activities API)
 		RaiselyWebhookEvents         []string `yaml:"raiselyWebhookEvents"`

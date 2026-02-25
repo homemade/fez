@@ -42,7 +42,7 @@ func TestRaiselyFundraiserExtensions(t *testing.T) {
 		},
 	}
 
-	exerciselogs := []ExerciseLogEntry{
+	exerciseLogs := []ExerciseLogEntry{
 		{Activity: "SWIMMING", Date: "2023-10-01T03:09:38.979Z", Distance: 100},
 		{Activity: "SWIMMING", Date: "2023-10-02T03:09:38.979Z", Distance: 200},
 		{Activity: "SWIMMING", Date: "2023-10-03T03:09:38.979Z", Distance: 300},
@@ -75,7 +75,7 @@ func TestRaiselyFundraiserExtensions(t *testing.T) {
 
 	testCase := "before challenge"
 
-	result, err := ApplyRaiselyFundraiserExtensions(extensions, exerciselogs, donations)
+	result, err := ApplyRaiselyFundraiserExtensions(extensions, exerciseLogs, donations)
 	if err != nil {
 		t.Error(err)
 	}
@@ -91,7 +91,7 @@ func TestRaiselyFundraiserExtensions(t *testing.T) {
 			data: gjson.Parse(`{"exerciseTotal": 4321, "public":{"activityStreaksAwarded":"010|015|020","donationStreaksAwarded":"003|005","challenge_training_total":4321}`),
 		},
 	}
-	result, err = ApplyRaiselyFundraiserExtensions(extensions, exerciselogs, donations)
+	result, err = ApplyRaiselyFundraiserExtensions(extensions, exerciseLogs, donations)
 	if err != nil {
 		t.Error(err)
 	}
@@ -107,7 +107,7 @@ func TestRaiselyFundraiserExtensions(t *testing.T) {
 			data: gjson.Parse(`{"exerciseTotal": 3210, "public":{"activityStreaksAwarded":"010|015|020","donationStreaksAwarded":"003|005","challenge_training_total":4321}`),
 		},
 	}
-	result, err = ApplyRaiselyFundraiserExtensions(extensions, exerciselogs, donations)
+	result, err = ApplyRaiselyFundraiserExtensions(extensions, exerciseLogs, donations)
 	if err != nil {
 		t.Error(err)
 	}
@@ -124,7 +124,7 @@ func TestRaiselyFundraiserExtensions(t *testing.T) {
 			data: gjson.Parse(`{"exerciseTotal": 3210, "public":{"activityStreaksAwarded":"010|015|020","donationStreaksAwarded":"003|005","challenge_training_total":4321}`),
 		},
 	}
-	result, err = ApplyRaiselyFundraiserExtensions(extensions, exerciselogs, donations)
+	result, err = ApplyRaiselyFundraiserExtensions(extensions, exerciseLogs, donations)
 	if err != nil {
 		t.Error(err)
 	}
@@ -141,7 +141,7 @@ func TestRaiselyFundraiserExtensions(t *testing.T) {
 			data: gjson.Parse(`{"exerciseTotal": 5432, "public":{"activityStreaksAwarded":"010|015|020","donationStreaksAwarded":"003|005","challenge_training_total":4321}`),
 		},
 	}
-	result, err = ApplyRaiselyFundraiserExtensions(extensions, exerciselogs, donations)
+	result, err = ApplyRaiselyFundraiserExtensions(extensions, exerciseLogs, donations)
 	if err != nil {
 		t.Error(err)
 	}
@@ -158,7 +158,7 @@ func TestRaiselyFundraiserExtensions(t *testing.T) {
 			data: gjson.Parse(`{"exerciseTotal": 1000, "public":{"challenge_training_total":5432}}`),
 		},
 	}
-	result, err = ApplyRaiselyFundraiserExtensions(extensions, exerciselogs, donations)
+	result, err = ApplyRaiselyFundraiserExtensions(extensions, exerciseLogs, donations)
 	if err != nil {
 		t.Error(err)
 	}
@@ -174,7 +174,7 @@ func TestRaiselyFundraiserExtensions(t *testing.T) {
 			data: gjson.Parse(`{"exerciseTotal": 1000, "public":{"activityStreaksAwarded":"010|015|020","donationStreaksAwarded":"003|005","challenge_training_total":5432,"challenge_total":1000}`),
 		},
 	}
-	result, err = ApplyRaiselyFundraiserExtensions(extensions, exerciselogs, donations)
+	result, err = ApplyRaiselyFundraiserExtensions(extensions, exerciseLogs, donations)
 	if err != nil {
 		t.Error(err)
 	}

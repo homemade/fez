@@ -55,14 +55,14 @@ func (om orttoCRMFieldMapper) ExpandFieldMappings(mappings *FieldMappings, custo
 	return errors.Join(errs...) // nil error values are discarded
 }
 
-func (om orttoCRMFieldMapper) expandSimpleFieldType(fieldtype SimpleFieldType, fieldmappings map[string]string, custom bool) (map[string]string, error) {
+func (om orttoCRMFieldMapper) expandSimpleFieldType(fieldType SimpleFieldType, fieldMappings map[string]string, custom bool) (map[string]string, error) {
 	result := make(map[string]string)
-	for k, v := range fieldmappings {
+	for k, v := range fieldMappings {
 		s := ":" + k
 		if custom {
 			s = "cm" + s
 		}
-		switch fieldtype {
+		switch fieldType {
 		case String:
 			s = "str:" + s
 		case Text:
@@ -74,27 +74,27 @@ func (om orttoCRMFieldMapper) expandSimpleFieldType(fieldtype SimpleFieldType, f
 		case Timestamp:
 			s = "tme:" + s
 		default:
-			return result, fmt.Errorf("invalid simple field type %v", fieldtype)
+			return result, fmt.Errorf("invalid simple field type %v", fieldType)
 		}
 		result[s] = v
 	}
 	return result, nil
 }
 
-func (om orttoCRMFieldMapper) expandNestedFieldType(fieldtype NestedFieldType, fieldmappings map[string]map[string]string, custom bool) (map[string]map[string]string, error) {
+func (om orttoCRMFieldMapper) expandNestedFieldType(fieldType NestedFieldType, fieldMappings map[string]map[string]string, custom bool) (map[string]map[string]string, error) {
 	result := make(map[string]map[string]string)
-	for k, v := range fieldmappings {
+	for k, v := range fieldMappings {
 		s := ":" + k
 		if custom {
 			s = "cm" + s
 		}
-		switch fieldtype {
+		switch fieldType {
 		case Phone:
 			s = "phn:" + s
 		case Geo:
 			s = "geo:" + s
 		default:
-			return result, fmt.Errorf("invalid nested field type %v", fieldtype)
+			return result, fmt.Errorf("invalid nested field type %v", fieldType)
 		}
 		result[s] = v
 	}

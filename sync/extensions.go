@@ -182,7 +182,7 @@ func AddMissingDaysForStreak(max int, days []int, value string) string {
 	return result
 }
 
-func ApplyRaiselyFundraiserExtensions(extensions FundraiserExtensions, exerciselogs []ExerciseLogEntry, donations []Donation) (string, error) {
+func ApplyRaiselyFundraiserExtensions(extensions FundraiserExtensions, exerciseLogs []ExerciseLogEntry, donations []Donation) (string, error) {
 	var err error
 	var result string
 
@@ -192,7 +192,7 @@ func ApplyRaiselyFundraiserExtensions(extensions FundraiserExtensions, exercisel
 	currentMaxActivityDays := extensions.MaxCurrentDaysForActivityStreak()
 	if currentMaxActivityDays < configuredMaxActivityDays {
 		var exerciselogEntries []StreakableEntry
-		for _, el := range exerciselogs {
+		for _, el := range exerciseLogs {
 			if el.IncludeForStreak(extensions.Config) {
 				exerciselogEntries = append(exerciselogEntries, StreakableEntry{el.TimestampForStreak()})
 			}
@@ -250,19 +250,19 @@ func ApplyRaiselyTeamExtensions(extensions TeamExtensions) (string, error) {
 
 }
 
-func AddSplitExerciseTotals(campaign *FundraisingCampaign, page FundraisingPage, splitexercisetotals SplitExerciseTotals, json string) (string, error) {
+func AddSplitExerciseTotals(campaign *FundraisingCampaign, page FundraisingPage, splitExerciseTotals SplitExerciseTotals, json string) (string, error) {
 	var err error
 	result := json
 
 	// split exercise totals
-	if splitexercisetotals.IsConfigured() {
+	if splitExerciseTotals.IsConfigured() {
 
 		now := time.Now()
 
 		// use `from` mapping to retrieve timestamp
 		var fromTimestamp time.Time
 		for _, defaultObject := range campaign.FundraisingPageDefaults {
-			if splitexercisetotals.From == defaultObject.Label {
+			if splitExerciseTotals.From == defaultObject.Label {
 				fromTimestamp, err = time.Parse(time.RFC3339, defaultObject.Value)
 				if err != nil {
 					return result, err
@@ -271,8 +271,8 @@ func AddSplitExerciseTotals(campaign *FundraisingCampaign, page FundraisingPage,
 		}
 
 		// apply split mappings based on `from` timestamp compared to current time
-		beforeMapping := splitexercisetotals.Mappings[0]
-		fromMapping := splitexercisetotals.Mappings[1]
+		beforeMapping := splitExerciseTotals.Mappings[0]
+		fromMapping := splitExerciseTotals.Mappings[1]
 		exerciseTotal, _ := page.Source.IntForPath("exerciseTotal")
 		beforeExerciseTotalCurrentValue, _ := page.Source.IntForPath(beforeMapping)
 		fromExerciseTotalCurrentValue, _ := page.Source.IntForPath(fromMapping)

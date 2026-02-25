@@ -22,7 +22,7 @@ type OrttoContactsMapper struct {
 }
 
 // MapFundraisingPage maps a fundraising page to an Ortto contacts request.
-func (o *OrttoContactsMapper) MapFundraisingPage(campaign *FundraisingCampaign, p2pregistrationid string, ctx context.Context) (OrttoRequest, error) {
+func (o *OrttoContactsMapper) MapFundraisingPage(campaign *FundraisingCampaign, p2pRegistrationID string, ctx context.Context) (OrttoRequest, error) {
 
 	orttoRequest := OrttoContactsRequest{
 		Async:         false,
@@ -31,7 +31,7 @@ func (o *OrttoContactsMapper) MapFundraisingPage(campaign *FundraisingCampaign, 
 		FindStrategy:  0, // Any  - first MergeBy field is prioritised, if a match is not found the second field is then used
 	}
 
-	data, err := o.RaiselyMapper.RaiselyFetcherAndUpdater.FetchFundraiserData(p2pregistrationid, ctx)
+	data, err := o.RaiselyMapper.RaiselyFetcherAndUpdater.FetchFundraiserData(p2pRegistrationID, ctx)
 	if err != nil {
 		return orttoRequest, err
 	}
@@ -51,7 +51,7 @@ func (o *OrttoContactsMapper) MapFundraisingPage(campaign *FundraisingCampaign, 
 }
 
 // MapTeamFundraisingPage maps team members' fundraising pages to an Ortto contacts request.
-func (o *OrttoContactsMapper) MapTeamFundraisingPage(campaign *FundraisingCampaign, p2pteamid string, ctx context.Context) (OrttoRequest, error) {
+func (o *OrttoContactsMapper) MapTeamFundraisingPage(campaign *FundraisingCampaign, p2pTeamID string, ctx context.Context) (OrttoRequest, error) {
 	result := OrttoContactsRequest{
 		Async:         false,
 		MergeBy:       []string{fmt.Sprintf("str:cm:%s-p2p-registration-id", o.Config.CampaignPrefix), "str::email"},
@@ -59,7 +59,7 @@ func (o *OrttoContactsMapper) MapTeamFundraisingPage(campaign *FundraisingCampai
 		FindStrategy:  0, // Any  - first MergeBy field is prioritised, if a match is not found the second field is then used
 	}
 
-	team, teamPage, err := o.RaiselyMapper.RaiselyFetcherAndUpdater.FetchTeam(p2pteamid, ctx)
+	team, teamPage, err := o.RaiselyMapper.RaiselyFetcherAndUpdater.FetchTeam(p2pTeamID, ctx)
 	if err != nil {
 		return result, err
 	}
@@ -150,7 +150,7 @@ func (o *OrttoContactsMapper) SendRequest(req OrttoRequest, ctx context.Context)
 
 // ReconcileFundraisingPage compares a mapped contact against the existing Ortto contact and returns any differences.
 // This is useful for dev mode reconciliation to identify data inconsistencies.
-func (o *OrttoContactsMapper) ReconcileFundraisingPage(p2pregistrationid string, contact OrttoContact, ctx context.Context) (OrttoContactDiff, error) {
+func (o *OrttoContactsMapper) ReconcileFundraisingPage(p2pRegistrationID string, contact OrttoContact, ctx context.Context) (OrttoContactDiff, error) {
 
 	var result OrttoContactDiff
 	result.Fields = make(map[string]OrttoContactDiffField)
@@ -180,7 +180,7 @@ func (o *OrttoContactsMapper) ReconcileFundraisingPage(p2pregistrationid string,
 					}
 				}
 				]
-			}`, o.Config.CampaignPrefix, p2pregistrationid)
+			}`, o.Config.CampaignPrefix, p2pRegistrationID)
 
 	contacts, err := o.OrttoFetcherAndUpdater.GetContact(fieldNames, filterJSON, ctx)
 	if err != nil {
@@ -188,12 +188,12 @@ func (o *OrttoContactsMapper) ReconcileFundraisingPage(p2pregistrationid string,
 	}
 
 	if len(contacts) > 1 {
-		return result, fmt.Errorf("multiple ortto contacts found for p2p registration id %s", p2pregistrationid)
+		return result, fmt.Errorf("multiple ortto contacts found for p2p registration id %s", p2pRegistrationID)
 	}
 
 	if len(contacts) == 1 {
 
-		result.Id = contacts[0].Id
+		result.ID = contacts[0].ID
 
 		for k, orttoValue := range contacts[0].Fields {
 
@@ -240,18 +240,18 @@ func (o *OrttoContactsMapper) ReconcileFundraisingPage(p2pregistrationid string,
 
 // CheckOrttoCustomFields checks that all configured custom fields exist in Ortto.
 // Returns a map of field names to their status (ok/missing).
-func (o *OrttoContactsMapper) CheckOrttoCustomFields(statusprocessing string, statusok string, statusmissing string, ctx context.Context) (map[string]string, error) {
+func (o *OrttoContactsMapper) CheckOrttoCustomFields(statusProcessing string, statusOK string, statusMissing string, ctx context.Context) (map[string]string, error) {
 
 	fieldsToCheck := make(map[string]string)
 	orttoTypes := make(map[string]string)
 	for _, v := range o.Config.FundraiserFieldMappings.Custom.AllKeys() {
-		fieldsToCheck[v] = statusprocessing
+		fieldsToCheck[v] = statusProcessing
 		orttoTypes[v] = o.Config.FundraiserFieldMappings.Custom.AsOrttoFieldType(v)
 	}
 	for _, v := range o.Config.TeamFieldMappings.Custom.AllKeys() {
-		fieldsToCheck[v] = statusprocessing
+		fieldsToCheck[v] = statusProcessing
 		orttoTypes[v] = o.Config.TeamFieldMappings.Custom.AsOrttoFieldType(v)
 	}
 
-	return o.OrttoFetcherAndUpdater.CheckCustomFields(fieldsToCheck, orttoTypes, o.Config, statusprocessing, statusok, statusmissing, ctx)
+	return o.OrttoFetcherAndUpdater.CheckCustomFields(fieldsToCheck, orttoTypes, o.Config, statusProcessing, statusOK, statusMissing, ctx)
 }

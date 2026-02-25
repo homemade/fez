@@ -72,7 +72,7 @@ type OrttoSyncContext struct {
 	Source           string
 	TriggerType      string
 	TriggerSubType   string
-	TriggerId        string
+	TriggerID        string
 	TriggerCreatedAt string
 	Campaign         string
 	CampaignName     string
@@ -84,7 +84,7 @@ func NewOrttoSyncContext(sc *SyncContext) OrttoSyncContext {
 		Source:           sc.Source,
 		TriggerType:      sc.TriggerType,
 		TriggerSubType:   sc.TriggerSubType,
-		TriggerId:        sc.TriggerId,
+		TriggerID:        sc.TriggerID,
 		TriggerCreatedAt: sc.TriggerCreatedAt,
 		Campaign:         sc.Campaign,
 		CampaignName:     sc.CampaignName,
@@ -104,7 +104,7 @@ func (c OrttoSyncContext) AsOrttoActivitiesAttributes() OrttoAttributes {
 		Source           string `json:"Source"`
 		TriggerType      string `json:"Trigger-type"`
 		TriggerSubType   string `json:"Trigger-subtype,omitempty"`
-		TriggerId        string `json:"Trigger-id,omitempty"`
+		TriggerID        string `json:"Trigger-id,omitempty"`
 		TriggerCreatedAt string `json:"Trigger-created-at"`
 		Campaign         string `json:"Campaign"`
 		CampaignName     string `json:"Campaign-name"`
@@ -112,7 +112,7 @@ func (c OrttoSyncContext) AsOrttoActivitiesAttributes() OrttoAttributes {
 		Source:           c.Source,
 		TriggerType:      c.TriggerType,
 		TriggerSubType:   c.TriggerSubType,
-		TriggerId:        c.TriggerId,
+		TriggerID:        c.TriggerID,
 		TriggerCreatedAt: triggerCreatedAtFormatted,
 		Campaign:         c.Campaign,
 		CampaignName:     c.CampaignName,
@@ -141,8 +141,8 @@ type OrttoResponse interface {
 // OrttoMapper is the interface for mapping Raisely data to ortto-specific formats.
 // Implementations exist for each integration target (e.g., OrttoContactsMapper, OrttoActivitiesMapper).
 type OrttoMapper interface {
-	MapFundraisingPage(campaign *FundraisingCampaign, p2pregistrationid string, ctx context.Context) (OrttoRequest, error)
-	MapTeamFundraisingPage(campaign *FundraisingCampaign, p2pteamid string, ctx context.Context) (OrttoRequest, error)
+	MapFundraisingPage(campaign *FundraisingCampaign, p2pRegistrationID string, ctx context.Context) (OrttoRequest, error)
+	MapTeamFundraisingPage(campaign *FundraisingCampaign, p2pTeamID string, ctx context.Context) (OrttoRequest, error)
 	MapTrackingData(campaign *FundraisingCampaign, data map[string]string, ctx context.Context) (OrttoRequest, error)
 	SendRequest(req OrttoRequest, ctx context.Context) (OrttoResponse, error)
 }
@@ -175,7 +175,7 @@ func NewOrttoMapper(sc *SyncContext) OrttoMapper {
 
 // OrttoContact represents a single contact/person in the Ortto Contacts/CDP API.
 type OrttoContact struct {
-	Id     string                 `json:"id,omitempty"`
+	ID     string                 `json:"id,omitempty"`
 	Fields map[string]interface{} `json:"fields"`
 }
 
@@ -189,7 +189,7 @@ func (c *OrttoContact) SetField(key string, value interface{}) { c.Fields[key] =
 func (c *OrttoContact) DeleteField(key string) { delete(c.Fields, key) }
 
 type OrttoContactDiff struct {
-	Id     string                           `json:"id"`
+	ID     string                           `json:"id"`
 	Fields map[string]OrttoContactDiffField `json:"fields"`
 }
 
@@ -302,7 +302,7 @@ type OrttoError struct {
 }
 
 type OrttoContactsResult struct {
-	PersonId string `json:"person_id"`
+	PersonID string `json:"person_id"`
 	Status   string `json:"status"`
 }
 

@@ -65,7 +65,7 @@ func (o OrttoFetcherAndUpdater) SendActivitiesCreate(req OrttoActivitiesRequest,
 }
 
 // SearchForContactByEmail searches Ortto for a contact by email that has the specified merge field set.
-func (o OrttoFetcherAndUpdater) SearchForContactByEmail(email string, mergefieldid string, ctx context.Context) ([]OrttoContact, error) {
+func (o OrttoFetcherAndUpdater) SearchForContactByEmail(email string, mergeFieldID string, ctx context.Context) ([]OrttoContact, error) {
 	// json.Marshal to safely escape email for interpolation into JSON body
 	emailJSON, err := json.Marshal(email)
 	if err != nil {
@@ -102,7 +102,7 @@ func (o OrttoFetcherAndUpdater) SearchForContactByEmail(email string, mergefield
 				]
 			}
 		}
-		`, mergefieldid, mergefieldid, emailJSON))).
+		`, mergeFieldID, mergeFieldID, emailJSON))).
 		ToJSON(&response).
 		ErrorJSON(&response.Error).
 		Fetch(ctx)
@@ -114,7 +114,7 @@ func (o OrttoFetcherAndUpdater) SearchForContactByEmail(email string, mergefield
 }
 
 // GetContact fetches a contact from Ortto by field values and filter.
-func (o OrttoFetcherAndUpdater) GetContact(fields []byte, filterjson string, ctx context.Context) ([]OrttoContact, error) {
+func (o OrttoFetcherAndUpdater) GetContact(fields []byte, filterJSON string, ctx context.Context) ([]OrttoContact, error) {
 	response := struct {
 		Contacts []OrttoContact `json:"contacts"`
 		Error    OrttoError
@@ -131,7 +131,7 @@ func (o OrttoFetcherAndUpdater) GetContact(fields []byte, filterjson string, ctx
 			"fields": %s,
 			"filter": %s
 		}
-		`, fields, filterjson))).
+		`, fields, filterJSON))).
 		ToJSON(&response).
 		ErrorJSON(&response.Error).
 		Fetch(ctx)
@@ -166,7 +166,7 @@ func (o OrttoFetcherAndUpdater) ListCustomPersonFields(ctx context.Context) ([]s
 	response := struct {
 		Fields []struct {
 			Field struct {
-				Id string `json:"id"`
+				ID string `json:"id"`
 			} `json:"field"`
 		} `json:"fields"`
 		Error OrttoError
@@ -185,19 +185,19 @@ func (o OrttoFetcherAndUpdater) ListCustomPersonFields(ctx context.Context) ([]s
 
 	var fieldIDs []string
 	for _, v := range response.Fields {
-		fieldIDs = append(fieldIDs, v.Field.Id)
+		fieldIDs = append(fieldIDs, v.Field.ID)
 	}
 	return fieldIDs, nil
 }
 
 // CreateCustomPersonField creates a custom person field in Ortto.
-func (o OrttoFetcherAndUpdater) CreateCustomPersonField(name, fieldtype string, ctx context.Context) error {
+func (o OrttoFetcherAndUpdater) CreateCustomPersonField(name, fieldType string, ctx context.Context) error {
 	req := struct {
 		Name string `json:"name"`
 		Type string `json:"type"`
 	}{
 		Name: name,
-		Type: fieldtype,
+		Type: fieldType,
 	}
 
 	response := struct {
@@ -222,16 +222,16 @@ func (o OrttoFetcherAndUpdater) CreateCustomPersonField(name, fieldtype string, 
 // fieldstocheck maps field IDs to the initial status (e.g. "processing").
 // orttotypes maps field IDs to their expected Ortto type label.
 // The config is used for int: decimal/integer type validation.
-func (o OrttoFetcherAndUpdater) CheckCustomFields(fieldstocheck map[string]string, orttotypes map[string]string, config Config, statusp string, statusok string, statusmissing string, ctx context.Context) (map[string]string, error) {
+func (o OrttoFetcherAndUpdater) CheckCustomFields(fieldsToCheck map[string]string, orttoTypes map[string]string, config Config, statusProcessing string, statusOK string, statusMissing string, ctx context.Context) (map[string]string, error) {
 	result := make(map[string]string)
-	for k, v := range fieldstocheck {
+	for k, v := range fieldsToCheck {
 		result[k] = v
 	}
 
 	response := struct {
 		Fields []struct {
 			Field struct {
-				Id          string `json:"id"`
+				ID          string `json:"id"`
 				DisplayType string `json:"display_type"`
 			} `json:"field"`
 		} `json:"fields"`
@@ -249,35 +249,35 @@ func (o OrttoFetcherAndUpdater) CheckCustomFields(fieldstocheck map[string]strin
 	}
 
 	for _, v := range response.Fields {
-		if _, exists := result[v.Field.Id]; exists {
+		if _, exists := result[v.Field.ID]; exists {
 			// check Ortto type is correct for decimals and integers
-			if strings.HasPrefix(v.Field.Id, "int:") {
+			if strings.HasPrefix(v.Field.ID, "int:") {
 				if v.Field.DisplayType == "decimal" {
-					_, decimalMappingExists := config.FundraiserFieldMappings.Custom.Decimals[v.Field.Id]
+					_, decimalMappingExists := config.FundraiserFieldMappings.Custom.Decimals[v.Field.ID]
 					if !decimalMappingExists {
-						_, decimalMappingExists = config.TeamFieldMappings.Custom.Decimals[v.Field.Id]
+						_, decimalMappingExists = config.TeamFieldMappings.Custom.Decimals[v.Field.ID]
 					}
 					if decimalMappingExists {
-						result[v.Field.Id] = statusok
+						result[v.Field.ID] = statusOK
 					}
 				}
 				if v.Field.DisplayType == "integer" {
-					_, integerMappingExists := config.FundraiserFieldMappings.Custom.Integers[v.Field.Id]
+					_, integerMappingExists := config.FundraiserFieldMappings.Custom.Integers[v.Field.ID]
 					if !integerMappingExists {
-						_, integerMappingExists = config.TeamFieldMappings.Custom.Integers[v.Field.Id]
+						_, integerMappingExists = config.TeamFieldMappings.Custom.Integers[v.Field.ID]
 					}
 					if integerMappingExists {
-						result[v.Field.Id] = statusok
+						result[v.Field.ID] = statusOK
 					}
 				}
 			} else {
-				result[v.Field.Id] = statusok
+				result[v.Field.ID] = statusOK
 			}
 		}
 	}
 
 	for k, v := range result {
-		if v != statusok {
+		if v != statusOK {
 			// generate ortto label
 			orttoLabel := ""
 			keyParts := strings.Split(k, ":")
@@ -292,7 +292,7 @@ func (o OrttoFetcherAndUpdater) CheckCustomFields(fieldstocheck map[string]strin
 					}
 				}
 			}
-			result[k] = fmt.Sprintf(`%s %s (%s)`, statusmissing, orttoLabel, orttotypes[k])
+			result[k] = fmt.Sprintf(`%s %s (%s)`, statusMissing, orttoLabel, orttoTypes[k])
 		}
 	}
 

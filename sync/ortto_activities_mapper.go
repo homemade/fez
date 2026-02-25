@@ -106,7 +106,7 @@ func (o OrttoActivitiesMapper) SeparateFieldsAndAttributesAndSortAttributes(acti
 }
 
 // MapFundraisingPage maps a fundraising page to an Ortto activities request.
-func (o *OrttoActivitiesMapper) MapFundraisingPage(campaign *FundraisingCampaign, p2pregistrationid string, ctx context.Context) (OrttoRequest, error) {
+func (o *OrttoActivitiesMapper) MapFundraisingPage(campaign *FundraisingCampaign, p2pRegistrationID string, ctx context.Context) (OrttoRequest, error) {
 
 	var orttoRequest OrttoActivitiesRequest
 
@@ -114,7 +114,7 @@ func (o *OrttoActivitiesMapper) MapFundraisingPage(campaign *FundraisingCampaign
 	if o.Config.API.Settings.OrttoFundraiserMergeField == "" {
 		return orttoRequest, errors.New("ortto fundraiser merge field is required for ortto-activities target config (api.settings.orttoFundraiserMergeField)")
 	}
-	if o.Config.API.Settings.OrttoActivityId == "" {
+	if o.Config.API.Settings.OrttoActivityID == "" {
 		return orttoRequest, errors.New("ortto activity id is required for ortto-activities target config (api.ids.orttoActivityId)")
 	}
 
@@ -124,14 +124,14 @@ func (o *OrttoActivitiesMapper) MapFundraisingPage(campaign *FundraisingCampaign
 		MergeStrategy: 2, // Overwrite existing
 	}
 
-	data, err := o.RaiselyMapper.RaiselyFetcherAndUpdater.FetchFundraiserData(p2pregistrationid, ctx)
+	data, err := o.RaiselyMapper.RaiselyFetcherAndUpdater.FetchFundraiserData(p2pRegistrationID, ctx)
 	if err != nil {
 		return orttoRequest, err
 	}
 
 	// Build the activity with person fields
 	activity := OrttoActivity{
-		ActivityID: o.Config.API.Settings.OrttoActivityId,
+		ActivityID: o.Config.API.Settings.OrttoActivityID,
 		Fields:     make(map[string]interface{}),
 		Attributes: NewOrttoSyncContext(o.SyncContext).AsOrttoActivitiesAttributes(),
 	}
@@ -157,7 +157,7 @@ func (o *OrttoActivitiesMapper) MapFundraisingPage(campaign *FundraisingCampaign
 }
 
 // MapTeamFundraisingPage maps team members' fundraising pages to an Ortto activities request.
-func (o *OrttoActivitiesMapper) MapTeamFundraisingPage(campaign *FundraisingCampaign, p2pteamid string, ctx context.Context) (OrttoRequest, error) {
+func (o *OrttoActivitiesMapper) MapTeamFundraisingPage(campaign *FundraisingCampaign, p2pTeamID string, ctx context.Context) (OrttoRequest, error) {
 
 	var result OrttoActivitiesRequest
 
@@ -165,7 +165,7 @@ func (o *OrttoActivitiesMapper) MapTeamFundraisingPage(campaign *FundraisingCamp
 	if o.Config.API.Settings.OrttoFundraiserMergeField == "" {
 		return result, errors.New("ortto fundraiser merge field is required for ortto-activities target config (api.settings.orttoFundraiserMergeField)")
 	}
-	if o.Config.API.Settings.OrttoActivityId == "" {
+	if o.Config.API.Settings.OrttoActivityID == "" {
 		return result, errors.New("ortto activity id is required for ortto-activities target config (api.ids.orttoActivityId)")
 	}
 
@@ -175,7 +175,7 @@ func (o *OrttoActivitiesMapper) MapTeamFundraisingPage(campaign *FundraisingCamp
 		MergeStrategy: 2, // Overwrite existing
 	}
 
-	team, teamPage, err := o.RaiselyMapper.RaiselyFetcherAndUpdater.FetchTeam(p2pteamid, ctx)
+	team, teamPage, err := o.RaiselyMapper.RaiselyFetcherAndUpdater.FetchTeam(p2pTeamID, ctx)
 	if err != nil {
 		return result, err
 	}
@@ -188,7 +188,7 @@ func (o *OrttoActivitiesMapper) MapTeamFundraisingPage(campaign *FundraisingCamp
 
 	for _, page := range memberPages {
 		activity := OrttoActivity{
-			ActivityID: o.Config.API.Settings.OrttoActivityId,
+			ActivityID: o.Config.API.Settings.OrttoActivityID,
 			Fields:     make(map[string]interface{}),
 			Attributes: NewOrttoSyncContext(o.SyncContext).AsOrttoActivitiesAttributes(),
 		}
@@ -225,7 +225,7 @@ func (o *OrttoActivitiesMapper) MapTrackingData(campaign *FundraisingCampaign, d
 	if o.Config.API.Settings.OrttoFundraiserMergeField == "" {
 		return result, errors.New("ortto fundraiser merge field is required for ortto-activities target config (api.settings.orttoFundraiserMergeField)")
 	}
-	if o.Config.API.Settings.OrttoActivityId == "" {
+	if o.Config.API.Settings.OrttoActivityID == "" {
 		return result, errors.New("ortto activity id is required for ortto-activities target config (api.ids.orttoActivityId)")
 	}
 
@@ -249,7 +249,7 @@ func (o *OrttoActivitiesMapper) MapTrackingData(campaign *FundraisingCampaign, d
 	}
 
 	activity := OrttoActivity{
-		ActivityID: o.Config.API.Settings.OrttoActivityId,
+		ActivityID: o.Config.API.Settings.OrttoActivityID,
 		Fields:     make(map[string]interface{}),
 		Attributes: NewOrttoSyncContext(o.SyncContext).AsOrttoActivitiesAttributes(),
 	}
@@ -334,8 +334,8 @@ type ActivityDefinitionResponse struct {
 }
 
 // BuildActivityDefinitionRequest creates an activity definition request from the config field mappings.
-// The activityname parameter sets the display name for the activity in Ortto.
-func (o OrttoActivitiesMapper) BuildActivityDefinitionRequest(activityname string, trackingconfig Config) (ActivityDefinitionRequest, error) {
+// The activityName parameter sets the display name for the activity in Ortto.
+func (o OrttoActivitiesMapper) BuildActivityDefinitionRequest(activityName string, trackingConfig Config) (ActivityDefinitionRequest, error) {
 
 	var request ActivityDefinitionRequest
 
@@ -343,13 +343,13 @@ func (o OrttoActivitiesMapper) BuildActivityDefinitionRequest(activityname strin
 	if o.Config.API.Settings.OrttoFundraiserMergeField == "" {
 		return request, errors.New("ortto fundraiser merge field is required for ortto-activities target config (api.settings.orttoFundraiserMergeField)")
 	}
-	if activityname == "" {
+	if activityName == "" {
 		return request, errors.New("activity name is required")
 	}
 
-	name := activityname
+	name := activityName
 	request = ActivityDefinitionRequest{
-		Name:                 activityname,
+		Name:                 activityName,
 		IconID:               "reload-illustration-icon",
 		TrackConversionValue: false,
 		Touch:                true,
@@ -390,10 +390,10 @@ func (o OrttoActivitiesMapper) BuildActivityDefinitionRequest(activityname strin
 	// Extract attributes from custom team field mappings
 	o.extractFieldMappings(&request.Attributes, o.Config.TeamFieldMappings.Custom, personFieldIDs)
 
-	// Merge in any extra custom fields from trackingconfig (not already included)
+	// Merge in any extra custom fields from trackingConfig (not already included)
 	trackingAttributes := []ActivityDefinitionAttribute{}
-	o.extractFieldMappings(&trackingAttributes, trackingconfig.FundraiserFieldMappings.Custom, personFieldIDs)
-	o.extractFieldMappings(&trackingAttributes, trackingconfig.TeamFieldMappings.Custom, personFieldIDs)
+	o.extractFieldMappings(&trackingAttributes, trackingConfig.FundraiserFieldMappings.Custom, personFieldIDs)
+	o.extractFieldMappings(&trackingAttributes, trackingConfig.TeamFieldMappings.Custom, personFieldIDs)
 	for _, attr := range trackingAttributes {
 		found := false // Check if field is already in attributes
 		for _, existingAttr := range request.Attributes {
@@ -546,9 +546,9 @@ func (o OrttoActivitiesMapper) extractFieldName(fieldID string) string {
 }
 
 // CreateActivityDefinition creates an activity definition in Ortto.
-func (o *OrttoActivitiesMapper) CreateActivityDefinition(ctx context.Context, activityname string, trackingconfig Config) (ActivityDefinitionResponse, error) {
+func (o *OrttoActivitiesMapper) CreateActivityDefinition(ctx context.Context, activityName string, trackingConfig Config) (ActivityDefinitionResponse, error) {
 
-	request, err := o.BuildActivityDefinitionRequest(activityname, trackingconfig)
+	request, err := o.BuildActivityDefinitionRequest(activityName, trackingConfig)
 	if err != nil {
 		return ActivityDefinitionResponse{}, err
 	}
@@ -621,15 +621,15 @@ func labelFromFieldID(fieldID string) string {
 }
 
 // CheckOrttoCustomFields checks that the Ortto custom fields are set up correctly for activities.
-func (o *OrttoActivitiesMapper) CheckOrttoCustomFields(statusprocessing string, statusok string, statusmissing string, ctx context.Context) (map[string]string, error) {
+func (o *OrttoActivitiesMapper) CheckOrttoCustomFields(statusProcessing string, statusOK string, statusMissing string, ctx context.Context) (map[string]string, error) {
 	fieldsToCheck := make(map[string]string)
 	orttoTypes := make(map[string]string)
-	fieldsToCheck[o.Config.API.Settings.OrttoFundraiserMergeField] = statusprocessing
+	fieldsToCheck[o.Config.API.Settings.OrttoFundraiserMergeField] = statusProcessing
 	orttoTypes[o.Config.API.Settings.OrttoFundraiserMergeField] = "Text" // TODO determine type from field
 	if o.Config.API.Settings.OrttoFundraiserSnapshotField != "" {
-		fieldsToCheck[o.Config.API.Settings.OrttoFundraiserSnapshotField] = statusprocessing
+		fieldsToCheck[o.Config.API.Settings.OrttoFundraiserSnapshotField] = statusProcessing
 		orttoTypes[o.Config.API.Settings.OrttoFundraiserSnapshotField] = "Object" // TODO determine type from field
 	}
 
-	return o.OrttoFetcherAndUpdater.CheckCustomFields(fieldsToCheck, orttoTypes, o.Config, statusprocessing, statusok, statusmissing, ctx)
+	return o.OrttoFetcherAndUpdater.CheckCustomFields(fieldsToCheck, orttoTypes, o.Config, statusProcessing, statusOK, statusMissing, ctx)
 }

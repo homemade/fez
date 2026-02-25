@@ -29,21 +29,21 @@ type FieldDocumentation struct {
 
 // GenerateFieldDocumentation generates field documentation from a campaign configuration.
 // For ortto-activities, it uses the isPersonFieldFn to determine if a field is a Person or Activity field.
-func GenerateFieldDocumentation(config Config, campaignlabel string, ispersonfieldfn func(fieldid string) bool) FieldDocumentation {
+func GenerateFieldDocumentation(config Config, campaignLabel string, isPersonFieldFn func(fieldID string) bool) FieldDocumentation {
 	doc := FieldDocumentation{
-		CampaignLabel: campaignlabel,
+		CampaignLabel: campaignLabel,
 		Target:        config.Target,
 		Rows:          []FieldDocRow{},
 	}
 
 	// Process fundraiser builtin fields
-	processFieldMappings(&doc.Rows, config.FundraiserFieldMappings.Builtin, config.FundraiserFieldTransforms, true, false, ispersonfieldfn)
+	processFieldMappings(&doc.Rows, config.FundraiserFieldMappings.Builtin, config.FundraiserFieldTransforms, true, false, isPersonFieldFn)
 
 	// Process fundraiser custom fields
-	processFieldMappings(&doc.Rows, config.FundraiserFieldMappings.Custom, config.FundraiserFieldTransforms, false, false, ispersonfieldfn)
+	processFieldMappings(&doc.Rows, config.FundraiserFieldMappings.Custom, config.FundraiserFieldTransforms, false, false, isPersonFieldFn)
 
 	// Process team custom fields
-	processFieldMappings(&doc.Rows, config.TeamFieldMappings.Custom, config.TeamFieldTransforms, false, true, ispersonfieldfn)
+	processFieldMappings(&doc.Rows, config.TeamFieldMappings.Custom, config.TeamFieldTransforms, false, true, isPersonFieldFn)
 
 	// Sort rows for deterministic output:
 	// - For ortto-activities: Person fields first, then Activity fields
@@ -69,47 +69,47 @@ func GenerateFieldDocumentation(config Config, campaignlabel string, ispersonfie
 
 // processFieldMappings extracts field documentation from a FieldMappings struct.
 // Fields are processed in sorted order by field ID for deterministic output.
-func processFieldMappings(rows *[]FieldDocRow, mappings FieldMappings, transforms map[string]string, isbuiltin bool, isteamfield bool, ispersonfieldfn func(fieldid string) bool) {
+func processFieldMappings(rows *[]FieldDocRow, mappings FieldMappings, transforms map[string]string, isBuiltin bool, isTeamField bool, isPersonFieldFn func(fieldID string) bool) {
 	// Strings
 	for _, fieldID := range sortedKeys(mappings.Strings) {
-		*rows = append(*rows, createFieldDocRow(fieldID, mappings.Strings[fieldID], "Text", transforms, isbuiltin, isteamfield, ispersonfieldfn))
+		*rows = append(*rows, createFieldDocRow(fieldID, mappings.Strings[fieldID], "Text", transforms, isBuiltin, isTeamField, isPersonFieldFn))
 	}
 
 	// Texts
 	for _, fieldID := range sortedKeys(mappings.Texts) {
-		*rows = append(*rows, createFieldDocRow(fieldID, mappings.Texts[fieldID], "Long text", transforms, isbuiltin, isteamfield, ispersonfieldfn))
+		*rows = append(*rows, createFieldDocRow(fieldID, mappings.Texts[fieldID], "Long text", transforms, isBuiltin, isTeamField, isPersonFieldFn))
 	}
 
 	// Decimals
 	for _, fieldID := range sortedKeys(mappings.Decimals) {
-		*rows = append(*rows, createFieldDocRow(fieldID, mappings.Decimals[fieldID], "Decimal number", transforms, isbuiltin, isteamfield, ispersonfieldfn))
+		*rows = append(*rows, createFieldDocRow(fieldID, mappings.Decimals[fieldID], "Decimal number", transforms, isBuiltin, isTeamField, isPersonFieldFn))
 	}
 
 	// Integers
 	for _, fieldID := range sortedKeys(mappings.Integers) {
-		*rows = append(*rows, createFieldDocRow(fieldID, mappings.Integers[fieldID], "Whole number", transforms, isbuiltin, isteamfield, ispersonfieldfn))
+		*rows = append(*rows, createFieldDocRow(fieldID, mappings.Integers[fieldID], "Whole number", transforms, isBuiltin, isTeamField, isPersonFieldFn))
 	}
 
 	// Booleans
 	for _, fieldID := range sortedKeys(mappings.Booleans) {
-		*rows = append(*rows, createFieldDocRow(fieldID, mappings.Booleans[fieldID], "Boolean", transforms, isbuiltin, isteamfield, ispersonfieldfn))
+		*rows = append(*rows, createFieldDocRow(fieldID, mappings.Booleans[fieldID], "Boolean", transforms, isBuiltin, isTeamField, isPersonFieldFn))
 	}
 
 	// Timestamps
 	for _, fieldID := range sortedKeys(mappings.Timestamps) {
-		*rows = append(*rows, createFieldDocRow(fieldID, mappings.Timestamps[fieldID], "Time and date", transforms, isbuiltin, isteamfield, ispersonfieldfn))
+		*rows = append(*rows, createFieldDocRow(fieldID, mappings.Timestamps[fieldID], "Time and date", transforms, isBuiltin, isTeamField, isPersonFieldFn))
 	}
 
 	// Phones (nested type)
 	for _, fieldID := range sortedKeysPhones(mappings.Phones) {
 		sourcePath := extractNestedSourcePath(mappings.Phones[fieldID])
-		*rows = append(*rows, createFieldDocRow(fieldID, sourcePath, "Phone", transforms, isbuiltin, isteamfield, ispersonfieldfn))
+		*rows = append(*rows, createFieldDocRow(fieldID, sourcePath, "Phone", transforms, isBuiltin, isTeamField, isPersonFieldFn))
 	}
 
 	// Geos (nested type)
 	for _, fieldID := range sortedKeysGeos(mappings.Geos) {
 		sourcePath := extractNestedSourcePath(mappings.Geos[fieldID])
-		*rows = append(*rows, createFieldDocRow(fieldID, sourcePath, "Geo", transforms, isbuiltin, isteamfield, ispersonfieldfn))
+		*rows = append(*rows, createFieldDocRow(fieldID, sourcePath, "Geo", transforms, isBuiltin, isTeamField, isPersonFieldFn))
 	}
 }
 
@@ -151,17 +151,17 @@ func extractNestedSourcePath(nestedMap map[string]string) string {
 }
 
 // createFieldDocRow creates a FieldDocRow from field mapping data.
-func createFieldDocRow(fieldid string, sourcepathwithtransforms string, fieldtype string, transforms map[string]string, isbuiltin bool, isteamfield bool, ispersonfieldfn func(fieldid string) bool) FieldDocRow {
+func createFieldDocRow(fieldID string, sourcePathWithTransforms string, fieldType string, transforms map[string]string, isBuiltin bool, isTeamField bool, isPersonFieldFn func(fieldID string) bool) FieldDocRow {
 	row := FieldDocRow{
-		FieldName:   extractFieldName(fieldid),
-		FieldID:     fieldid,
-		IsBuiltin:   isbuiltin,
-		FieldType:   fieldtype,
-		IsTeamField: isteamfield,
+		FieldName:   extractFieldName(fieldID),
+		FieldID:     fieldID,
+		IsBuiltin:   isBuiltin,
+		FieldType:   fieldType,
+		IsTeamField: isTeamField,
 	}
 
 	// Extract source path and inline transforms
-	sourcePath, inlineTransforms := parseSourcePath(sourcepathwithtransforms)
+	sourcePath, inlineTransforms := parseSourcePath(sourcePathWithTransforms)
 	row.SourcePath = sourcePath
 
 	// Build notes from inline transforms and field transforms
@@ -173,20 +173,20 @@ func createFieldDocRow(fieldid string, sourcepathwithtransforms string, fieldtyp
 	}
 
 	// Add field transforms to notes
-	if transform, exists := transforms[fieldid]; exists {
+	if transform, exists := transforms[fieldID]; exists {
 		notes = append(notes, formatTransformNote(transform))
 	}
 
 	// Add team field indicator
-	if isteamfield {
+	if isTeamField {
 		notes = append(notes, "Team field")
 	}
 
 	row.Notes = strings.Join(notes, " | ")
 
 	// Determine entity for ortto-activities
-	if ispersonfieldfn != nil {
-		if ispersonfieldfn(fieldid) {
+	if isPersonFieldFn != nil {
+		if isPersonFieldFn(fieldID) {
 			row.Entity = "Person"
 		} else {
 			row.Entity = "Activity"
@@ -199,12 +199,12 @@ func createFieldDocRow(fieldid string, sourcepathwithtransforms string, fieldtyp
 // extractFieldName extracts the field name from an Ortto field ID.
 // e.g., "str:cm:campaign-field-name" -> "campaign-field-name"
 // e.g., "str::email" -> "email"
-func extractFieldName(fieldid string) string {
-	parts := strings.Split(fieldid, ":")
+func extractFieldName(fieldID string) string {
+	parts := strings.Split(fieldID, ":")
 	if len(parts) >= 3 {
 		return parts[len(parts)-1]
 	}
-	return fieldid
+	return fieldID
 }
 
 // parseSourcePath extracts the source path and inline transforms from a mapping value.

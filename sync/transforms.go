@@ -11,7 +11,7 @@ import (
 
 // DonationsUpToFetcher fetches donation data up to a specific time for a fundraising profile.
 type DonationsUpToFetcher interface {
-	FetchDonationsUpTo(p2pid string, upTo time.Time, ctx context.Context) (FundraisingProfileDonationsUpTo, error)
+	FetchDonationsUpTo(p2pID string, upTo time.Time, ctx context.Context) (FundraisingProfileDonationsUpTo, error)
 }
 
 // ApplyFundraiserFieldTransformsParams contains parameters for applying fundraiser field transforms.
