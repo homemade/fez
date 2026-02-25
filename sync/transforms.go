@@ -138,20 +138,20 @@ func ApplyFundraiserFieldTransforms(params ApplyFundraiserFieldTransformsParams)
 // This is shared between OrttoContactsMapper and OrttoActivitiesMapper.
 func ApplyTeamFieldTransforms(
 	config Config,
-	teamMemberPage FundraisingPage,
-	teamPage FundraisingPage,
+	teammemberpage FundraisingPage,
+	teampage FundraisingPage,
 	destination Mappable,
 ) error {
 	if len(config.TeamFieldTransforms) == 0 {
 		return nil
 	}
 
-	captain, err := teamMemberPage.HasSameOwnerAs(teamPage)
+	captain, err := teammemberpage.HasSameOwnerAs(teampage)
 	if err != nil {
 		return err
 	}
 
-	orgType, _ := teamPage.Source.StringForPath("public.organisationType")
+	orgType, _ := teampage.Source.StringForPath("public.organisationType")
 	if orgType != "" {
 		orgType = strings.ToLower(orgType)
 	}

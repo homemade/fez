@@ -63,15 +63,15 @@ func (em EmbeddedMappings) MustFindDefaultsMappingFileForTarget(target string) (
 // and <label> must exactly match the first dot-separated segment of the filename.
 // Filename format: <LABEL>[.<target>].yaml
 // Returns the mapping file, the target, and any error.
-func (em EmbeddedMappings) MustFindFirstCampaignMappingFileWithTargetByPath(mappingPath string) (result MappingFile, target string, err error) {
+func (em EmbeddedMappings) MustFindFirstCampaignMappingFileWithTargetByPath(mappingpath string) (result MappingFile, target string, err error) {
 	// Split path into org directory and file label
 	// e.g. "STAR/SSS_V001" → dir: "<root>/STAR", fileLabel: "SSS_V001"
-	index := strings.LastIndex(mappingPath, "/")
+	index := strings.LastIndex(mappingpath, "/")
 	if index == -1 {
-		return result, target, fmt.Errorf("invalid mapping path %q: must contain org directory (e.g. ORG/LABEL)", mappingPath)
+		return result, target, fmt.Errorf("invalid mapping path %q: must contain org directory (e.g. ORG/LABEL)", mappingpath)
 	}
-	dir := path.Join(em.Root, mappingPath[:index])
-	fileLabel := mappingPath[index+1:]
+	dir := path.Join(em.Root, mappingpath[:index])
+	fileLabel := mappingpath[index+1:]
 
 	var files []fs.DirEntry
 	files, err = em.Files.ReadDir(dir)
@@ -89,7 +89,7 @@ func (em EmbeddedMappings) MustFindFirstCampaignMappingFileWithTargetByPath(mapp
 
 		// multiple matches are not supported - guard against misconfiguration
 		if result.Name != "" {
-			err = fmt.Errorf("found multiple mapping files with path: %s in dir: %s", mappingPath, dir)
+			err = fmt.Errorf("found multiple mapping files with path: %s in dir: %s", mappingpath, dir)
 			return result, target, err
 		}
 
@@ -106,7 +106,7 @@ func (em EmbeddedMappings) MustFindFirstCampaignMappingFileWithTargetByPath(mapp
 		}
 	}
 	if result.Name == "" {
-		err = fmt.Errorf("failed to find mapping file with path: %s in dir: %s", mappingPath, dir)
+		err = fmt.Errorf("failed to find mapping file with path: %s in dir: %s", mappingpath, dir)
 	}
 	return result, target, err
 }

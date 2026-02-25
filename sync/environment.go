@@ -29,7 +29,7 @@ func ConfigWithCRMFieldMapper(mapper CRMFieldMapper) ConfigOption {
 // (e.g. "RAISELY_CAMPAIGN_UUID" for the Raisely2Ortto flavour).
 // Returns the env var name and the MAPPING_PATH value.
 // Returns an error if multiple env vars match the same UUID, or if MAPPING_PATH is missing.
-func FindCampaignEnvVar(campaignUUIDKey string, campaignUUID string) (envVarName string, mappingPath string, err error) {
+func FindCampaignEnvVar(campaignuuidkey string, campaignuuid string) (envVarName string, mappingPath string, err error) {
 	type match struct {
 		name string
 		path string
@@ -49,14 +49,14 @@ func FindCampaignEnvVar(campaignUUIDKey string, campaignUUID string) (envVarName
 			continue
 		}
 
-		uuid, ok := m[campaignUUIDKey]
-		if !ok || uuid != campaignUUID {
+		uuid, ok := m[campaignuuidkey]
+		if !ok || uuid != campaignuuid {
 			continue
 		}
 
 		p, ok := m["MAPPING_PATH"]
 		if !ok || p == "" {
-			return "", "", fmt.Errorf("env var %q contains %s but is missing MAPPING_PATH", name, campaignUUIDKey)
+			return "", "", fmt.Errorf("env var %q contains %s but is missing MAPPING_PATH", name, campaignuuidkey)
 		}
 
 		matches = append(matches, match{name: name, path: p})
@@ -70,7 +70,7 @@ func FindCampaignEnvVar(campaignUUIDKey string, campaignUUID string) (envVarName
 		for i, m := range matches {
 			names[i] = m.name
 		}
-		return "", "", fmt.Errorf("found multiple env vars with %s %q: %s", campaignUUIDKey, campaignUUID, strings.Join(names, ", "))
+		return "", "", fmt.Errorf("found multiple env vars with %s %q: %s", campaignuuidkey, campaignuuid, strings.Join(names, ", "))
 	}
 
 	return matches[0].name, matches[0].path, nil

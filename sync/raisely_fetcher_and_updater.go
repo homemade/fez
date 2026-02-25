@@ -542,9 +542,9 @@ func (r *RaiselyFetcherAndUpdater) FetchTeamMembers(team FundraisingTeam, ctx co
 	var wg gosync.WaitGroup
 	for i, member := range team.TeamMembers {
 		wg.Add(1)
-		go func(index int, memberP2PId string) {
+		go func(index int, memberp2pid string) {
 			defer wg.Done()
-			errs[index] = pages[index].fetchRaiselyData(r.fetchParams(memberP2PId, ctx))
+			errs[index] = pages[index].fetchRaiselyData(r.fetchParams(memberp2pid, ctx))
 		}(i, member.P2PId)
 	}
 	wg.Wait()
@@ -556,20 +556,20 @@ func (r *RaiselyFetcherAndUpdater) FetchTeamMembers(team FundraisingTeam, ctx co
 }
 
 // FetchProfilesSince fetches fundraising profiles updated after the given timestamp.
-func (r *RaiselyFetcherAndUpdater) FetchProfilesSince(campaignP2PId string, since time.Time, ctx context.Context) (FundraisingProfilesSince, error) {
+func (r *RaiselyFetcherAndUpdater) FetchProfilesSince(campaignp2pid string, since time.Time, ctx context.Context) (FundraisingProfilesSince, error) {
 	profiles := FundraisingProfilesSince{
 		Timestamp: since,
 	}
-	err := profiles.fetchRaiselyData(r.fetchParams(campaignP2PId, ctx))
+	err := profiles.fetchRaiselyData(r.fetchParams(campaignp2pid, ctx))
 	return profiles, err
 }
 
 // FetchDonationsUpTo fetches donations for a profile up to the given time.
-func (r *RaiselyFetcherAndUpdater) FetchDonationsUpTo(profileP2PId string, upTo time.Time, ctx context.Context) (FundraisingProfileDonationsUpTo, error) {
+func (r *RaiselyFetcherAndUpdater) FetchDonationsUpTo(profilep2pid string, upTo time.Time, ctx context.Context) (FundraisingProfileDonationsUpTo, error) {
 	donations := FundraisingProfileDonationsUpTo{
 		UpTo: upTo,
 	}
-	err := donations.fetchRaiselyData(r.fetchParams(profileP2PId, ctx))
+	err := donations.fetchRaiselyData(r.fetchParams(profilep2pid, ctx))
 	return donations, err
 }
 
