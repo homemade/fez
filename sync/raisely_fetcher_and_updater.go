@@ -599,3 +599,61 @@ type UpdateRaiselyDataRequest struct {
 	P2PID string
 	JSON  string
 }
+
+// RaiselyWebhookConfig represents a webhook configuration in Raisely.
+type RaiselyWebhookConfig struct {
+	UUID         string   `json:"uuid"`
+	CampaignUUID string   `json:"campaignUuid"`
+	URL          string   `json:"url"`
+	Events       []string `json:"events"`
+}
+
+type raiselyWebhooksResponse struct {
+	Data []RaiselyWebhookConfig `json:"data"`
+}
+
+type raiselyWebhookResponse struct {
+	Data RaiselyWebhookConfig `json:"data"`
+}
+
+// ListWebhooks retrieves webhook configurations for a campaign via GET /v3/webhooks.
+func (r *RaiselyFetcherAndUpdater) ListWebhooks(campaignUUID string, ctx context.Context) ([]RaiselyWebhookConfig, error) {
+	raiselyError := RaiselyError{}
+	var result raiselyWebhooksResponse
+	err := r.RaiselyAPIBuilder().
+		Path("/v3/webhooks").
+		Param("campaign", campaignUUID).
+		Bearer(r.RaiselyAPIKey()).
+		ToJSON(&result).
+		ErrorJSON(&raiselyError).
+		Fetch(ctx)
+	if err != nil {
+		log.Printf("Raisely Error: %+v", raiselyError)
+		return nil, err
+	}
+	return result.Data, nil
+}
+
+// CreateWebhook creates a new webhook configuration via POST /v3/webhooks.
+func (r *RaiselyFetcherAndUpdater) CreateWebhook(url string, campaignUUID string, events []string, ctx context.Context) (RaiselyWebhookConfig, error) {
+	raiselyError := RaiselyError{}
+	var result raiselyWebhookResponse
+	body := map[string]interface{}{
+		"url":          url,
+		"campaignUuid": campaignUUID,
+		"events":       events,
+	}
+	err := r.RaiselyAPIBuilder().
+		Post().
+		Path("/v3/webhooks").
+		Bearer(r.RaiselyAPIKey()).
+		BodyJSON(body).
+		ToJSON(&result).
+		ErrorJSON(&raiselyError).
+		Fetch(ctx)
+	if err != nil {
+		log.Printf("Raisely Error: %+v", raiselyError)
+		return RaiselyWebhookConfig{}, err
+	}
+	return result.Data, nil
+}
