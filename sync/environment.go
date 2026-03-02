@@ -43,10 +43,13 @@ func FindCampaignEnvVar(campaignUUIDKey string, campaignUUID string) (envVarName
 		}
 		name, value := parts[0], parts[1]
 
+		if !strings.HasPrefix(name, CampaignEnvVarPrefix) {
+			continue
+		}
+
 		var m map[string]string
 		if err := json.Unmarshal([]byte(value), &m); err != nil {
-			// Most env vars are plain strings (e.g. PATH), not JSON — skip those silently
-			continue
+			return "", "", fmt.Errorf("env var %q has %s prefix but contains invalid JSON: %w", name, CampaignEnvVarPrefix, err)
 		}
 
 		uuid, ok := m[campaignUUIDKey]
@@ -87,9 +90,13 @@ func campaignUUIDKeyForFlavour(flavour Flavour) (string, error) {
 	}
 }
 
+// CampaignEnvVarPrefix is the required prefix for campaign environment variables.
+// This distinguishes campaign config vars from other env vars (e.g. PATH)
+const CampaignEnvVarPrefix = "FEZ_"
+
 // CampaignEnvVar represents a campaign environment variable with its path and UUID.
 type CampaignEnvVar struct {
-	Name string // Env var name (e.g. "STAR_SSS_2026_DEV")
+	Name string // Env var name (e.g. "FEZ_STAR_SSS_2026_DEV")
 	Path string // MAPPING_PATH value (e.g. "STAR/SSS_2026_DEV")
 	UUID string
 }
@@ -111,9 +118,13 @@ func FindAllCampaignEnvVars() ([]CampaignEnvVar, error) {
 		}
 		name, value := parts[0], parts[1]
 
+		if !strings.HasPrefix(name, CampaignEnvVarPrefix) {
+			continue
+		}
+
 		var m map[string]string
 		if err := json.Unmarshal([]byte(value), &m); err != nil {
-			continue
+			return nil, fmt.Errorf("env var %q has %s prefix but contains invalid JSON: %w", name, CampaignEnvVarPrefix, err)
 		}
 
 		p, hasPath := m["MAPPING_PATH"]
