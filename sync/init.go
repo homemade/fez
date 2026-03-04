@@ -203,8 +203,9 @@ func validateEnvVarOrgPrefix() {
 		}
 
 		org := mappingPath[:index]
-		if !strings.HasPrefix(name, org+"_") {
-			log.Fatalf("env var name %q must start with org prefix %q (from MAPPING_PATH %q)", name, org+"_", mappingPath)
+		nameWithoutPrefix := strings.TrimPrefix(name, CampaignEnvVarPrefix)
+		if !strings.HasPrefix(nameWithoutPrefix, org+"_") {
+			log.Fatalf("env var name %q must start with %s%s (from MAPPING_PATH %q)", name, CampaignEnvVarPrefix, org+"_", mappingPath)
 		}
 	}
 }
