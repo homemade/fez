@@ -355,27 +355,26 @@ type DisplayConditionDocumentation struct {
 	Rows          []DisplayConditionRow
 }
 
-// GenerateDisplayConditions generates display condition documentation from parsed YAML conditions.
-// Rows are sorted alphabetically by description.
-func GenerateDisplayConditions(campaignLabel string, activityName string, conditions map[string]DisplayCondition) DisplayConditionDocumentation {
+// DisplayConditionEntry pairs a description with its display condition,
+// preserving the order from the YAML file.
+type DisplayConditionEntry struct {
+	Description string
+	Condition   DisplayCondition
+}
+
+// GenerateDisplayConditions generates display condition documentation from an ordered
+// slice of entries. The order from the YAML file is preserved in the output.
+func GenerateDisplayConditions(campaignLabel string, activityName string, entries []DisplayConditionEntry) DisplayConditionDocumentation {
 	doc := DisplayConditionDocumentation{
 		CampaignLabel: campaignLabel,
 		ActivityName:  activityName,
 	}
 
-	// Collect and sort descriptions alphabetically
-	descriptions := make([]string, 0, len(conditions))
-	for desc := range conditions {
-		descriptions = append(descriptions, desc)
-	}
-	sort.Strings(descriptions)
-
-	for _, desc := range descriptions {
-		cond := conditions[desc]
+	for _, entry := range entries {
 		doc.Rows = append(doc.Rows, DisplayConditionRow{
-			Description: desc,
-			Begin:       cond.Begin,
-			End:         cond.End,
+			Description: entry.Description,
+			Begin:       entry.Condition.Begin,
+			End:         entry.Condition.End,
 		})
 	}
 
