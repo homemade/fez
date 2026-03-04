@@ -332,3 +332,89 @@ func (d FieldDocumentation) FormatCSV() (string, error) {
 
 	return buf.String(), nil
 }
+
+// DisplayCondition represents a single entry from a display condition YAML file.
+type DisplayCondition struct {
+	Begin       string                 `yaml:"begin"`
+	End         string                 `yaml:"end"`
+	ExpectTrue  map[string]interface{} `yaml:"expectTrue"`
+	ExpectFalse map[string]interface{} `yaml:"expectFalse"`
+}
+
+// DisplayConditionRow represents a single row in the display condition documentation.
+type DisplayConditionRow struct {
+	Description string // YAML key (e.g. "Has facebook fundraiser")
+	Begin       string // YAML begin value (e.g. {% if activity.custom... %})
+	End         string // YAML end value (e.g. {% endif %})
+}
+
+// DisplayConditionDocumentation contains all display condition documentation for a campaign.
+type DisplayConditionDocumentation struct {
+	CampaignLabel string
+	ActivityName  string
+	Rows          []DisplayConditionRow
+}
+
+// GenerateDisplayConditions generates display condition documentation from parsed YAML conditions.
+// Rows are sorted alphabetically by description.
+func GenerateDisplayConditions(campaignLabel string, activityName string, conditions map[string]DisplayCondition) DisplayConditionDocumentation {
+	doc := DisplayConditionDocumentation{
+		CampaignLabel: campaignLabel,
+		ActivityName:  activityName,
+	}
+
+	// Collect and sort descriptions alphabetically
+	descriptions := make([]string, 0, len(conditions))
+	for desc := range conditions {
+		descriptions = append(descriptions, desc)
+	}
+	sort.Strings(descriptions)
+
+	for _, desc := range descriptions {
+		cond := conditions[desc]
+		doc.Rows = append(doc.Rows, DisplayConditionRow{
+			Description: desc,
+			Begin:       cond.Begin,
+			End:         cond.End,
+		})
+	}
+
+	return doc
+}
+
+// FormatCSV formats the display condition documentation as CSV.
+func (d DisplayConditionDocumentation) FormatCSV() (string, error) {
+	var buf bytes.Buffer
+	writer := csv.NewWriter(&buf)
+
+	// Write campaign comment
+	if err := writer.Write([]string{fmt.Sprintf("# Campaign: %s", d.CampaignLabel)}); err != nil {
+		return "", err
+	}
+
+	// Write activity name comment
+	if d.ActivityName != "" {
+		if err := writer.Write([]string{fmt.Sprintf("# Activity: %s", d.ActivityName)}); err != nil {
+			return "", err
+		}
+	}
+
+	// Write headers
+	if err := writer.Write([]string{"Description", "Display Condition (Begin)", "Display Condition (End)"}); err != nil {
+		return "", err
+	}
+
+	// Write data rows
+	for _, row := range d.Rows {
+		if err := writer.Write([]string{row.Description, row.Begin, row.End}); err != nil {
+			return "", err
+		}
+	}
+
+	writer.Flush()
+	if err := writer.Error(); err != nil {
+		return "", err
+	}
+
+	return buf.String(), nil
+}
