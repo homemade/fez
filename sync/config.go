@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 
 	"go.uber.org/config"
 )
@@ -350,6 +351,14 @@ func (u YAMLConfigUnmarshaler) Unmarshal(compev CompositeEnvVar, sources ...Mapp
 	}
 
 	return result, nil
+}
+
+// ActivityName returns the activity name extracted from the OrttoActivityID setting.
+// e.g., "act:cm:myorg-mycampaign-sync" -> "myorg-mycampaign-sync"
+// NOTE: act:cm: is the prefix for custom activities in Ortto,
+// so we remove it to get the actual activity name.
+func (c Config) ActivityName() string {
+	return strings.TrimPrefix(c.API.Settings.OrttoActivityID, "act:cm:")
 }
 
 func (c Config) MapActivityLogs() bool {

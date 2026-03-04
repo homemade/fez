@@ -24,6 +24,7 @@ type FieldDocRow struct {
 type FieldDocumentation struct {
 	CampaignLabel string
 	Target        string
+	ActivityName  string // Activity name (only for ortto-activities)
 	Rows          []FieldDocRow
 }
 
@@ -286,6 +287,13 @@ func (d FieldDocumentation) FormatCSV() (string, error) {
 	// Write campaign comment
 	if err := writer.Write([]string{fmt.Sprintf("# Campaign: %s", d.CampaignLabel)}); err != nil {
 		return "", err
+	}
+
+	// Write activity name comment for ortto-activities
+	if d.Target == "ortto-activities" && d.ActivityName != "" {
+		if err := writer.Write([]string{fmt.Sprintf("# Activity: %s", d.ActivityName)}); err != nil {
+			return "", err
+		}
 	}
 
 	// Write headers based on target
