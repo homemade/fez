@@ -335,10 +335,12 @@ func (d FieldDocumentation) FormatCSV() (string, error) {
 
 // DisplayCondition represents a single entry from a display condition YAML file.
 type DisplayCondition struct {
-	Begin       string                 `yaml:"begin"`
-	End         string                 `yaml:"end"`
-	ExpectTrue  map[string]interface{} `yaml:"expectTrue"`
-	ExpectFalse map[string]interface{} `yaml:"expectFalse"`
+	Begin          string                 `yaml:"begin"`
+	End            string                 `yaml:"end"`
+	ExpectTrue     map[string]interface{} `yaml:"expectTrue"`
+	ExpectFalse    map[string]interface{} `yaml:"expectFalse"`
+	HasExpectTrue  bool                   `yaml:"-"` // Whether expectTrue key was present in YAML
+	HasExpectFalse bool                   `yaml:"-"` // Whether expectFalse key was present in YAML
 }
 
 // DisplayConditionRow represents a single row in the display condition documentation.
