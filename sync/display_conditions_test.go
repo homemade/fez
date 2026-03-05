@@ -222,6 +222,44 @@ func TestValidateDisplayConditionRendering_EmptyExpectTrue(t *testing.T) {
 	}
 }
 
+func TestValidateDisplayConditionSyntax(t *testing.T) {
+	entries := []DisplayConditionEntry{
+		{
+			Description: "Uses blank",
+			Condition: DisplayCondition{
+				Begin: "{% if activity.custom.test.field != blank %}",
+				End:   "{% endif %}",
+			},
+		},
+		{
+			Description: "No unsupported syntax",
+			Condition: DisplayCondition{
+				Begin: `{% assign len = activity.custom.test.field | size %}{% if len > 0 %}`,
+				End:   "{% endif %}",
+			},
+		},
+		{
+			Description: "Blank in end tag",
+			Condition: DisplayCondition{
+				Begin: "{% if activity.custom.test.a != blank %}",
+				End:   "{% else %}{% if activity.custom.test.b == blank %}fallback{% endif %}{% endif %}",
+			},
+		},
+	}
+
+	results := ValidateDisplayConditionSyntax(entries)
+
+	if len(results[0].UnsupportedTerms) != 1 || results[0].UnsupportedTerms[0] != "blank" {
+		t.Errorf("expected [blank] for 'Uses blank', got %v", results[0].UnsupportedTerms)
+	}
+	if len(results[1].UnsupportedTerms) != 0 {
+		t.Errorf("expected no unsupported terms for 'No unsupported syntax', got %v", results[1].UnsupportedTerms)
+	}
+	if len(results[2].UnsupportedTerms) != 1 || results[2].UnsupportedTerms[0] != "blank" {
+		t.Errorf("expected [blank] for 'Blank in end tag', got %v", results[2].UnsupportedTerms)
+	}
+}
+
 func TestValidateDisplayConditionRendering_FailingCondition(t *testing.T) {
 	entries := []DisplayConditionEntry{
 		{

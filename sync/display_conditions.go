@@ -153,6 +153,52 @@ func buildLiquidContext(activityName string, data map[string]interface{}) map[st
 	}
 }
 
+// DisplayConditionSyntaxResult represents the result of checking a single display condition
+// for unsupported Liquid syntax.
+type DisplayConditionSyntaxResult struct {
+	Description      string
+	UnsupportedTerms []string // e.g. ["blank"]
+}
+
+// unsupportedLiquidTerms lists Liquid keywords that are not supported by Ortto's Liquid implementation.
+var unsupportedLiquidTerms = []string{"blank"}
+
+// ValidateDisplayConditionSyntax checks display conditions for Liquid syntax that is not
+// supported by Ortto's Liquid implementation. Standard Liquid supports keywords like "blank"
+// but Ortto does not.
+func ValidateDisplayConditionSyntax(entries []DisplayConditionEntry) []DisplayConditionSyntaxResult {
+	var results []DisplayConditionSyntaxResult
+	for _, entry := range entries {
+		combined := entry.Condition.Begin + " " + entry.Condition.End
+		result := DisplayConditionSyntaxResult{
+			Description: entry.Description,
+		}
+		for _, term := range unsupportedLiquidTerms {
+			if strings.Contains(combined, " "+term+" ") ||
+				strings.Contains(combined, " "+term+"%") {
+				result.UnsupportedTerms = append(result.UnsupportedTerms, term)
+			}
+		}
+		results = append(results, result)
+	}
+	return results
+}
+
+// FormatSyntaxValidationResults formats syntax validation results as a human-readable string.
+func FormatSyntaxValidationResults(results []DisplayConditionSyntaxResult) string {
+	var sb strings.Builder
+	for _, r := range results {
+		if len(r.UnsupportedTerms) > 0 {
+			sb.WriteString(fmt.Sprintf("❌ %q — unsupported Liquid syntax: %s (not supported by Ortto)\n",
+				r.Description,
+				strings.Join(r.UnsupportedTerms, ", ")))
+		} else {
+			sb.WriteString(fmt.Sprintf("✅ %q\n", r.Description))
+		}
+	}
+	return sb.String()
+}
+
 // FormatFieldValidationResults formats field validation results as a human-readable string.
 func FormatFieldValidationResults(results []DisplayConditionFieldResult) string {
 	var sb strings.Builder
