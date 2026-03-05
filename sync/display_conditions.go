@@ -192,6 +192,7 @@ func FormatSyntaxValidationResults(results []DisplayConditionSyntaxResult) strin
 			sb.WriteString(fmt.Sprintf("❌ %q — unsupported Liquid syntax: %s (not supported by Ortto)\n",
 				r.Description,
 				strings.Join(r.UnsupportedTerms, ", ")))
+			sb.WriteString("   hint: use {% assign var_len_<field> = <path> | size %}{% if var_len_<field> > 0 %} instead of != blank\n")
 		} else {
 			sb.WriteString(fmt.Sprintf("✅ %q\n", r.Description))
 		}

@@ -117,13 +117,13 @@ func TestValidateDisplayConditionFields(t *testing.T) {
 func TestValidateDisplayConditionRendering(t *testing.T) {
 	entries := []DisplayConditionEntry{
 		{
-			Description: "Not blank check with empty expectFalse",
+			Description: "Size check with empty expectFalse",
 			Condition: DisplayCondition{
-				Begin:          "{% if activity.custom.test-act.my-field != blank %}",
+				Begin:          "{% assign var_len_my-field = activity.custom.test-act.my-field | size %}{% if var_len_my-field > 0 %}",
 				End:            "{% endif %}",
 				ExpectTrue:     map[string]interface{}{"my-field": "some-value"},
 				HasExpectTrue:  true,
-				ExpectFalse:    nil, // empty context = field is blank
+				ExpectFalse:    nil, // empty context = field has size 0
 				HasExpectFalse: true,
 			},
 		},
@@ -177,7 +177,7 @@ func TestValidateDisplayConditionRendering_KeyAbsent(t *testing.T) {
 		{
 			Description: "No expect keys at all",
 			Condition: DisplayCondition{
-				Begin:          "{% if activity.custom.test.field != blank %}",
+				Begin:          "{% assign var_len_field = activity.custom.test.field | size %}{% if var_len_field > 0 %}",
 				End:            "{% endif %}",
 				HasExpectTrue:  false,
 				HasExpectFalse: false,
@@ -196,15 +196,15 @@ func TestValidateDisplayConditionRendering_KeyAbsent(t *testing.T) {
 }
 
 func TestValidateDisplayConditionRendering_EmptyExpectTrue(t *testing.T) {
-	// expectTrue: present but nil (bare key in YAML) = test with blank context
-	// For == blank check, empty context should make it evaluate to true
+	// expectTrue: present but nil (bare key in YAML) = test with empty context
+	// For size == 0 check, empty context should make it evaluate to true
 	entries := []DisplayConditionEntry{
 		{
-			Description: "Blank check with empty expectTrue",
+			Description: "Size zero check with empty expectTrue",
 			Condition: DisplayCondition{
-				Begin:          "{% if activity.custom.test.field == blank %}",
+				Begin:          "{% assign var_len_field = activity.custom.test.field | size %}{% if var_len_field == 0 %}",
 				End:            "{% endif %}",
-				ExpectTrue:     nil, // blank context
+				ExpectTrue:     nil, // empty context
 				HasExpectTrue:  true,
 				ExpectFalse:    map[string]interface{}{"field": "has-value"},
 				HasExpectFalse: true,
@@ -215,10 +215,10 @@ func TestValidateDisplayConditionRendering_EmptyExpectTrue(t *testing.T) {
 	results := ValidateDisplayConditionRendering(entries, "test")
 
 	if results[0].ExpectTrueOK == nil || !*results[0].ExpectTrueOK {
-		t.Error("expected expectTrue to pass: blank context should make == blank evaluate true")
+		t.Error("expected expectTrue to pass: empty context should make size == 0 evaluate true")
 	}
 	if results[0].ExpectFalseOK == nil || !*results[0].ExpectFalseOK {
-		t.Error("expected expectFalse to pass: field with value should make == blank evaluate false")
+		t.Error("expected expectFalse to pass: field with value should make size == 0 evaluate false")
 	}
 }
 
