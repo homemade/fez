@@ -128,9 +128,9 @@ func TestValidateDisplayConditionRendering(t *testing.T) {
 			},
 		},
 		{
-			Description: "Numeric comparison",
+			Description: "Numeric comparison with assign",
 			Condition: DisplayCondition{
-				Begin:          "{% if activity.custom.test-act.amount >= 50.00 %}",
+				Begin:          "{% assign var_amount = activity.custom.test-act.amount %}{% if var_amount >= 50.00 %}",
 				End:            "{% endif %}",
 				ExpectTrue:     map[string]interface{}{"amount": 75.0},
 				HasExpectTrue:  true,
@@ -139,9 +139,9 @@ func TestValidateDisplayConditionRendering(t *testing.T) {
 			},
 		},
 		{
-			Description: "Boolean check true",
+			Description: "Boolean check with assign",
 			Condition: DisplayCondition{
-				Begin:          "{% if activity.custom.test-act.flag == true %}",
+				Begin:          "{% assign var_flag = activity.custom.test-act.flag %}{% if var_flag == true %}",
 				End:            "{% endif %}",
 				ExpectTrue:     map[string]interface{}{"flag": true},
 				HasExpectTrue:  true,
@@ -257,6 +257,48 @@ func TestValidateDisplayConditionSyntax(t *testing.T) {
 	}
 	if len(results[2].UnsupportedTerms) != 1 || results[2].UnsupportedTerms[0] != "blank" {
 		t.Errorf("expected [blank] for 'Blank in end tag', got %v", results[2].UnsupportedTerms)
+	}
+}
+
+func TestValidateDisplayConditionRendering_DividedByFilter(t *testing.T) {
+	entries := []DisplayConditionEntry{
+		{
+			Description: "Assign with divided_by filter",
+			Condition: DisplayCondition{
+				Begin:          "{% assign var_amount = activity.custom.test-act.amount | divided_by: 1000 %}{% if var_amount >= 50.00 %}",
+				End:            "{% endif %}",
+				ExpectTrue:     map[string]interface{}{"amount": 75000},
+				HasExpectTrue:  true,
+				ExpectFalse:    map[string]interface{}{"amount": 25000},
+				HasExpectFalse: true,
+			},
+		},
+		{
+			Description: "Assign with divided_by range check",
+			Condition: DisplayCondition{
+				Begin:          "{% assign var_amount = activity.custom.test-act.amount | divided_by: 1000 %}{% if var_amount >= 100.00 and var_amount < 150.00 %}",
+				End:            "{% endif %}",
+				ExpectTrue:     map[string]interface{}{"amount": 100000},
+				HasExpectTrue:  true,
+				ExpectFalse:    map[string]interface{}{"amount": 150000},
+				HasExpectFalse: true,
+			},
+		},
+	}
+
+	results := ValidateDisplayConditionRendering(entries, "test-act")
+
+	for _, r := range results {
+		if r.Error != "" {
+			t.Errorf("%q: unexpected error: %s", r.Description, r.Error)
+			continue
+		}
+		if r.ExpectTrueOK == nil || !*r.ExpectTrueOK {
+			t.Errorf("%q: expectTrue failed", r.Description)
+		}
+		if r.ExpectFalseOK == nil || !*r.ExpectFalseOK {
+			t.Errorf("%q: expectFalse failed", r.Description)
+		}
 	}
 }
 
