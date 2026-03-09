@@ -96,9 +96,10 @@ const CampaignEnvVarPrefix = "FEZ_"
 
 // CampaignEnvVar represents a campaign environment variable with its path and UUID.
 type CampaignEnvVar struct {
-	Name string // Env var name (e.g. "FEZ_STAR_SSS_2026_DEV")
-	Path string // MAPPING_PATH value (e.g. "STAR/SSS_2026_DEV")
-	UUID string
+	Name   string            // Env var name (e.g. "FEZ_STAR_SSS_2026_DEV")
+	Path   string            // MAPPING_PATH value (e.g. "STAR/SSS_2026_DEV")
+	UUID   string            // Campaign UUID
+	Config map[string]string // Full parsed JSON config from the env var
 }
 
 // FindAllCampaignEnvVars scans environment variables for JSON values containing
@@ -130,7 +131,7 @@ func FindAllCampaignEnvVars() ([]CampaignEnvVar, error) {
 		p, hasPath := m["MAPPING_PATH"]
 		uuid, hasUUID := m[campaignUUIDKey]
 		if hasPath && hasUUID {
-			result = append(result, CampaignEnvVar{Name: name, Path: p, UUID: uuid})
+			result = append(result, CampaignEnvVar{Name: name, Path: p, UUID: uuid, Config: m})
 		}
 	}
 	return result, nil
