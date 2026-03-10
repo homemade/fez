@@ -195,3 +195,68 @@ func LoadCampaignConfigFromEnvironment(embeddedMappings EmbeddedMappings, campai
 
 	return result, nil
 }
+
+// MapCompositeEnvVar implements CompositeEnvVar using an in-memory map.
+// Used by LoadCampaignConfigFromJSON to provide config values directly
+// instead of reading from environment variables.
+type MapCompositeEnvVar struct {
+	Values map[string]string
+}
+
+func (c MapCompositeEnvVar) LookupEnv(child string) (string, bool) {
+	v, ok := c.Values[child]
+	return v, ok
+}
+
+// LoadCampaignConfigFromJSON loads campaign configuration from an in-memory
+// config map (the same JSON structure stored in FEZ_ env vars) and embedded
+// YAML mapping files. This is used by admin API routes where the config is
+// received in the request body rather than read from environment variables.
+func LoadCampaignConfigFromJSON(embeddedMappings EmbeddedMappings, configJSON map[string]string, opts ...ConfigOption) (Config, error) {
+	mustBeInitialised()
+
+	var options configOptions
+	for _, opt := range opts {
+		opt(&options)
+	}
+
+	var result Config
+
+	mappingPath := configJSON["MAPPING_PATH"]
+	if mappingPath == "" {
+		return result, fmt.Errorf("MAPPING_PATH is required")
+	}
+
+	campaignMappingFile, target, err := embeddedMappings.MustFindFirstCampaignMappingFileWithTargetByPath(mappingPath)
+	if err != nil {
+		return result, fmt.Errorf("failed to read campaign mapping file %w", err)
+	}
+
+	requiredMappingFile, err := embeddedMappings.MustFindRequiredMappingFileForTarget(target)
+	if err != nil {
+		return result, fmt.Errorf("failed to read required mapping file %w", err)
+	}
+
+	defaultsMappingFile, err := embeddedMappings.MustFindDefaultsMappingFileForTarget(target)
+	if err != nil {
+		return result, fmt.Errorf("failed to read defaults mapping file %w", err)
+	}
+
+	compositeEnvVar := MapCompositeEnvVar{Values: configJSON}
+
+	yamlConfigUnmarshaler := YAMLConfigUnmarshaler{CRMFieldMapper: options.crmFieldMapper}
+
+	result, err = yamlConfigUnmarshaler.Unmarshal(
+		compositeEnvVar,
+		requiredMappingFile,
+		defaultsMappingFile,
+		campaignMappingFile,
+	)
+	if err != nil {
+		return result, fmt.Errorf("failed to load config %w", err)
+	}
+
+	result.Target = target
+
+	return result, nil
+}
