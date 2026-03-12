@@ -65,7 +65,7 @@ func (em EmbeddedMappings) MustFindDefaultsMappingFileForTarget(target string) (
 // Returns the mapping file, the target, and any error.
 func (em EmbeddedMappings) MustFindFirstCampaignMappingFileWithTargetByPath(mappingpath string) (result MappingFile, target string, err error) {
 	// Split path into org directory and file label
-	// e.g. "STAR/SSS_V001" → dir: "<root>/STAR", fileLabel: "SSS_V001"
+	// e.g. "ORG/LABEL" → dir: "<root>/ORG", fileLabel: "LABEL"
 	index := strings.LastIndex(mappingpath, "/")
 	if index == -1 {
 		return result, target, fmt.Errorf("invalid mapping path %q: must contain org directory (e.g. ORG/LABEL)", mappingpath)

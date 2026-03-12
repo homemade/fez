@@ -96,8 +96,8 @@ const CampaignEnvVarPrefix = "FEZ_"
 
 // CampaignEnvVar represents a campaign environment variable with its path and UUID.
 type CampaignEnvVar struct {
-	Name   string            // Env var name (e.g. "FEZ_STAR_SSS_2026_DEV")
-	Path   string            // MAPPING_PATH value (e.g. "STAR/SSS_2026_DEV")
+	Name   string            // Env var name (e.g. "FEZ_ORG_LABEL")
+	Path   string            // MAPPING_PATH value (e.g. "ORG/LABEL")
 	UUID   string            // Campaign UUID
 	Config map[string]string // Full parsed JSON config from the env var
 }
