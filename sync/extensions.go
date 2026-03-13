@@ -190,29 +190,29 @@ func AddTotalInWindow(extensions FundraiserExtensions, json string) (string, err
 
 	windowDuration, err := time.ParseDuration(extensions.Config.TotalInWindow.Window)
 	if err != nil {
-		return json, fmt.Errorf("failed to parse totalInWindow window duration %q: %w", extensions.Config.TotalInWindow.Window, err)
+		return json, fmt.Errorf("failed to parse totalInWindow extension window duration %q: %w", extensions.Config.TotalInWindow.Window, err)
 	}
 
 	profileCreatedAt, exists := extensions.Page.Source.StringForPath("createdAt")
 	if !exists || profileCreatedAt == "" {
-		log.Printf("Warning: totalInWindow skipped — profile createdAt not found")
+		log.Printf("Warning: totalInWindow extension skipped — profile createdAt not found")
 		return json, nil
 	}
 
 	profileCreatedAtTime, err := time.Parse(time.RFC3339, profileCreatedAt)
 	if err != nil {
-		log.Printf("Warning: totalInWindow skipped — failed to parse profile createdAt %q: %v", profileCreatedAt, err)
+		log.Printf("Warning: totalInWindow extension skipped — failed to parse profile createdAt %q: %v", profileCreatedAt, err)
 		return json, nil
 	}
 
 	if extensions.EventCreatedAt == "" {
-		log.Printf("Warning: totalInWindow skipped — eventCreatedAt not provided")
+		log.Printf("Warning: totalInWindow extension skipped — eventCreatedAt not provided")
 		return json, nil
 	}
 
 	eventCreatedAtTime, err := time.Parse(time.RFC3339, extensions.EventCreatedAt)
 	if err != nil {
-		log.Printf("Warning: totalInWindow skipped — failed to parse eventCreatedAt %q: %v", extensions.EventCreatedAt, err)
+		log.Printf("Warning: totalInWindow extension skipped — failed to parse eventCreatedAt %q: %v", extensions.EventCreatedAt, err)
 		return json, nil
 	}
 
