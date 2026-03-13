@@ -134,3 +134,115 @@ func TestDisplayConditionDocumentation_FormatCSV_NoActivityName(t *testing.T) {
 		t.Error("should not contain Activity comment when ActivityName is empty")
 	}
 }
+
+func TestGenerateExtensionsDocumentation_AllExtensions(t *testing.T) {
+	config := Config{}
+	config.FundraiserExtensions.Streaks.Donation.Days = []int{3, 5}
+	config.FundraiserExtensions.Streaks.Donation.Mapping = "public.donationStreaksAwarded"
+	config.FundraiserExtensions.Streaks.Activity.Days = []int{10, 15}
+	config.FundraiserExtensions.Streaks.Activity.Mapping = "public.activityStreaksAwarded"
+	config.FundraiserExtensions.SplitExerciseTotals = SplitExerciseTotals{
+		From:     "Challenge Start",
+		Mappings: []string{"public.training_total", "public.challenge_total"},
+	}
+	config.FundraiserExtensions.TotalInWindow = TotalInWindow{
+		Window:  "48h",
+		Mapping: "private.totalInFirst48h",
+	}
+	config.TeamExtensions.SplitExerciseTotals = SplitExerciseTotals{
+		From:     "Challenge Start",
+		Mappings: []string{"public.training_total", "public.challenge_total"},
+	}
+
+	doc := GenerateExtensionsDocumentation(config, "TEST_CAMPAIGN")
+
+	if doc.CampaignLabel != "TEST_CAMPAIGN" {
+		t.Errorf("expected CampaignLabel 'TEST_CAMPAIGN', got %q", doc.CampaignLabel)
+	}
+	if len(doc.Rows) != 7 {
+		t.Fatalf("expected 7 rows, got %d", len(doc.Rows))
+	}
+
+	// Check order: donation streak, activity streak, split (before), split (after), total in window, team split (before), team split (after)
+	if doc.Rows[0].Extension != "Donation Streak" || doc.Rows[0].AppliesTo != "Fundraiser" {
+		t.Errorf("row 0: expected Donation Streak/Fundraiser, got %q/%q", doc.Rows[0].Extension, doc.Rows[0].AppliesTo)
+	}
+	if doc.Rows[1].Extension != "Activity Streak" {
+		t.Errorf("row 1: expected Activity Streak, got %q", doc.Rows[1].Extension)
+	}
+	if doc.Rows[2].Extension != "Split Exercise Totals (before)" || doc.Rows[2].AppliesTo != "Fundraiser" {
+		t.Errorf("row 2: expected Split Exercise Totals (before)/Fundraiser, got %q/%q", doc.Rows[2].Extension, doc.Rows[2].AppliesTo)
+	}
+	if doc.Rows[3].Extension != "Split Exercise Totals (after)" {
+		t.Errorf("row 3: expected Split Exercise Totals (after), got %q", doc.Rows[3].Extension)
+	}
+	if doc.Rows[4].Extension != "Total In Window (48h)" || doc.Rows[4].RaiselyField != "private.totalInFirst48h" {
+		t.Errorf("row 4: expected Total In Window (48h)/private.totalInFirst48h, got %q/%q", doc.Rows[4].Extension, doc.Rows[4].RaiselyField)
+	}
+	if doc.Rows[5].Extension != "Split Exercise Totals (before)" || doc.Rows[5].AppliesTo != "Team" {
+		t.Errorf("row 5: expected Split Exercise Totals (before)/Team, got %q/%q", doc.Rows[5].Extension, doc.Rows[5].AppliesTo)
+	}
+	if doc.Rows[6].Extension != "Split Exercise Totals (after)" || doc.Rows[6].AppliesTo != "Team" {
+		t.Errorf("row 6: expected Split Exercise Totals (after)/Team, got %q/%q", doc.Rows[6].Extension, doc.Rows[6].AppliesTo)
+	}
+}
+
+func TestGenerateExtensionsDocumentation_NoExtensions(t *testing.T) {
+	config := Config{}
+	doc := GenerateExtensionsDocumentation(config, "EMPTY_CAMPAIGN")
+
+	if len(doc.Rows) != 0 {
+		t.Errorf("expected 0 rows, got %d", len(doc.Rows))
+	}
+}
+
+func TestGenerateExtensionsDocumentation_OnlyTotalInWindow(t *testing.T) {
+	config := Config{}
+	config.FundraiserExtensions.TotalInWindow = TotalInWindow{
+		Window:  "72h",
+		Mapping: "private.earlyTotal",
+	}
+
+	doc := GenerateExtensionsDocumentation(config, "CAMPAIGN")
+
+	if len(doc.Rows) != 1 {
+		t.Fatalf("expected 1 row, got %d", len(doc.Rows))
+	}
+	if doc.Rows[0].Extension != "Total In Window (72h)" {
+		t.Errorf("expected 'Total In Window (72h)', got %q", doc.Rows[0].Extension)
+	}
+	if doc.Rows[0].RaiselyField != "private.earlyTotal" {
+		t.Errorf("expected 'private.earlyTotal', got %q", doc.Rows[0].RaiselyField)
+	}
+}
+
+func TestExtensionsDocumentation_FormatCSV(t *testing.T) {
+	config := Config{}
+	config.FundraiserExtensions.Streaks.Donation.Days = []int{3}
+	config.FundraiserExtensions.Streaks.Donation.Mapping = "public.donationStreaks"
+	config.FundraiserExtensions.TotalInWindow = TotalInWindow{
+		Window:  "48h",
+		Mapping: "private.totalInFirst48h",
+	}
+
+	doc := GenerateExtensionsDocumentation(config, "MY_CAMPAIGN")
+	csv, err := doc.FormatCSV()
+	if err != nil {
+		t.Fatalf("FormatCSV error: %v", err)
+	}
+
+	lines := strings.Split(strings.TrimSpace(csv), "\n")
+
+	if lines[0] != "# Campaign: MY_CAMPAIGN" {
+		t.Errorf("expected campaign comment, got %q", lines[0])
+	}
+	if !strings.HasPrefix(lines[1], "Extension,") {
+		t.Errorf("expected header row, got %q", lines[1])
+	}
+	if !strings.HasPrefix(lines[2], "Donation Streak,") {
+		t.Errorf("expected Donation Streak row, got %q", lines[2])
+	}
+	if !strings.HasPrefix(lines[3], "Total In Window (48h),") {
+		t.Errorf("expected Total In Window row, got %q", lines[3])
+	}
+}
