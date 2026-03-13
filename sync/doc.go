@@ -333,6 +333,119 @@ func (d FieldDocumentation) FormatCSV() (string, error) {
 	return buf.String(), nil
 }
 
+// ExtensionsDocRow represents a single row in the extensions documentation.
+type ExtensionsDocRow struct {
+	Extension    string // Extension name (e.g. "Donation Streak", "Total In Window")
+	RaiselyField string // Raisely field path (e.g. "public.donationStreaksAwarded")
+	AppliesTo    string // "Fundraiser" or "Team"
+	Config       string // Config path (e.g. "fundraiserExtensions.totalInWindow.mapping")
+}
+
+// ExtensionsDocumentation contains documentation of Raisely fields written by extensions.
+type ExtensionsDocumentation struct {
+	CampaignLabel string
+	Rows          []ExtensionsDocRow
+}
+
+// GenerateExtensionsDocumentation generates documentation of Raisely fields
+// updated by configured extensions for a campaign.
+func GenerateExtensionsDocumentation(config Config, campaignLabel string) ExtensionsDocumentation {
+	doc := ExtensionsDocumentation{
+		CampaignLabel: campaignLabel,
+	}
+
+	// Fundraiser donation streaks
+	if len(config.FundraiserExtensions.Streaks.Donation.Days) > 0 && config.FundraiserExtensions.Streaks.Donation.Mapping != "" {
+		doc.Rows = append(doc.Rows, ExtensionsDocRow{
+			Extension:    "Donation Streak",
+			RaiselyField: config.FundraiserExtensions.Streaks.Donation.Mapping,
+			AppliesTo:    "Fundraiser",
+			Config:       "fundraiserExtensions.streaks.donation.mapping",
+		})
+	}
+
+	// Fundraiser activity streaks
+	if len(config.FundraiserExtensions.Streaks.Activity.Days) > 0 && config.FundraiserExtensions.Streaks.Activity.Mapping != "" {
+		doc.Rows = append(doc.Rows, ExtensionsDocRow{
+			Extension:    "Activity Streak",
+			RaiselyField: config.FundraiserExtensions.Streaks.Activity.Mapping,
+			AppliesTo:    "Fundraiser",
+			Config:       "fundraiserExtensions.streaks.activity.mapping",
+		})
+	}
+
+	// Fundraiser split exercise totals
+	if config.FundraiserExtensions.SplitExerciseTotals.IsConfigured() {
+		for i, mapping := range config.FundraiserExtensions.SplitExerciseTotals.Mappings {
+			label := "before"
+			if i == 1 {
+				label = "after"
+			}
+			doc.Rows = append(doc.Rows, ExtensionsDocRow{
+				Extension:    fmt.Sprintf("Split Exercise Totals (%s)", label),
+				RaiselyField: mapping,
+				AppliesTo:    "Fundraiser",
+				Config:       fmt.Sprintf("fundraiserExtensions.splitExerciseTotals.mappings[%d]", i),
+			})
+		}
+	}
+
+	// Fundraiser total in window
+	if config.FundraiserExtensions.TotalInWindow.IsConfigured() {
+		doc.Rows = append(doc.Rows, ExtensionsDocRow{
+			Extension:    fmt.Sprintf("Total In Window (%s)", config.FundraiserExtensions.TotalInWindow.Window),
+			RaiselyField: config.FundraiserExtensions.TotalInWindow.Mapping,
+			AppliesTo:    "Fundraiser",
+			Config:       "fundraiserExtensions.totalInWindow.mapping",
+		})
+	}
+
+	// Team split exercise totals
+	if config.TeamExtensions.SplitExerciseTotals.IsConfigured() {
+		for i, mapping := range config.TeamExtensions.SplitExerciseTotals.Mappings {
+			label := "before"
+			if i == 1 {
+				label = "after"
+			}
+			doc.Rows = append(doc.Rows, ExtensionsDocRow{
+				Extension:    fmt.Sprintf("Split Exercise Totals (%s)", label),
+				RaiselyField: mapping,
+				AppliesTo:    "Team",
+				Config:       fmt.Sprintf("teamExtensions.splitExerciseTotals.mappings[%d]", i),
+			})
+		}
+	}
+
+	return doc
+}
+
+// FormatCSV formats the extensions documentation as CSV.
+func (d ExtensionsDocumentation) FormatCSV() (string, error) {
+	var buf bytes.Buffer
+	writer := csv.NewWriter(&buf)
+
+	if err := writer.Write([]string{fmt.Sprintf("# Campaign: %s", d.CampaignLabel)}); err != nil {
+		return "", err
+	}
+
+	if err := writer.Write([]string{"Extension", "Raisely Field", "Applies To", "Config"}); err != nil {
+		return "", err
+	}
+
+	for _, row := range d.Rows {
+		if err := writer.Write([]string{row.Extension, row.RaiselyField, row.AppliesTo, row.Config}); err != nil {
+			return "", err
+		}
+	}
+
+	writer.Flush()
+	if err := writer.Error(); err != nil {
+		return "", err
+	}
+
+	return buf.String(), nil
+}
+
 // DisplayCondition represents a single entry from a display condition YAML file.
 type DisplayCondition struct {
 	Begin          string                 `yaml:"begin"`
