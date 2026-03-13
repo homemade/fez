@@ -2,6 +2,7 @@
 package sync
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
@@ -184,4 +185,128 @@ func TestRaiselyFundraiserExtensions(t *testing.T) {
 	}
 	t.Logf("%s result: %s", testCase, result)
 
+}
+
+func TestAddTotalInWindow(t *testing.T) {
+
+	profileCreatedAt := "2026-03-01T10:00:00Z"
+
+	makeExtensions := func(window string, mapping string, total int64, eventCreatedAt string) FundraiserExtensions {
+		return FundraiserExtensions{
+			Config: FundraiserExtensionsConfig{
+				TotalInWindow: TotalInWindow{
+					Window:  window,
+					Mapping: mapping,
+				},
+			},
+			Page: FundraisingPage{
+				Source: Source{
+					data: gjson.Parse(fmt.Sprintf(`{"createdAt": %q, "total": %d}`, profileCreatedAt, total)),
+				},
+			},
+			EventCreatedAt: eventCreatedAt,
+		}
+	}
+
+	t.Run("event within window", func(t *testing.T) {
+		ext := makeExtensions("48h", "private.totalInFirst48h", 5000, "2026-03-02T09:00:00Z")
+		result, err := AddTotalInWindow(ext, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		expected := `{"data":{"private":{"totalInFirst48h":5000}}}`
+		if result != expected {
+			t.Errorf("expected %s but got %s", expected, result)
+		}
+	})
+
+	t.Run("event exactly at window boundary", func(t *testing.T) {
+		ext := makeExtensions("48h", "private.totalInFirst48h", 7500, "2026-03-03T10:00:00Z")
+		result, err := AddTotalInWindow(ext, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		expected := `{"data":{"private":{"totalInFirst48h":7500}}}`
+		if result != expected {
+			t.Errorf("expected %s but got %s", expected, result)
+		}
+	})
+
+	t.Run("event after window", func(t *testing.T) {
+		ext := makeExtensions("48h", "private.totalInFirst48h", 9000, "2026-03-03T10:00:01Z")
+		result, err := AddTotalInWindow(ext, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if result != "" {
+			t.Errorf("expected empty result but got %s", result)
+		}
+	})
+
+	t.Run("not configured", func(t *testing.T) {
+		ext := FundraiserExtensions{
+			Config: FundraiserExtensionsConfig{},
+			Page: FundraisingPage{
+				Source: Source{
+					data: gjson.Parse(`{"createdAt": "2026-03-01T10:00:00Z", "total": 5000}`),
+				},
+			},
+			EventCreatedAt: "2026-03-02T09:00:00Z",
+		}
+		result, err := AddTotalInWindow(ext, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if result != "" {
+			t.Errorf("expected empty result but got %s", result)
+		}
+	})
+
+	t.Run("missing profile createdAt", func(t *testing.T) {
+		ext := FundraiserExtensions{
+			Config: FundraiserExtensionsConfig{
+				TotalInWindow: TotalInWindow{
+					Window:  "48h",
+					Mapping: "private.totalInFirst48h",
+				},
+			},
+			Page: FundraisingPage{
+				Source: Source{
+					data: gjson.Parse(`{"total": 5000}`),
+				},
+			},
+			EventCreatedAt: "2026-03-02T09:00:00Z",
+		}
+		result, err := AddTotalInWindow(ext, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if result != "" {
+			t.Errorf("expected empty result but got %s", result)
+		}
+	})
+
+	t.Run("appends to existing json", func(t *testing.T) {
+		ext := makeExtensions("48h", "private.totalInFirst48h", 3000, "2026-03-02T09:00:00Z")
+		existingJSON := `{"data":{"public":{"activityStreaksAwarded":"010"}}}`
+		result, err := AddTotalInWindow(ext, existingJSON)
+		if err != nil {
+			t.Fatal(err)
+		}
+		expected := `{"data":{"public":{"activityStreaksAwarded":"010"},"private":{"totalInFirst48h":3000}}}`
+		if result != expected {
+			t.Errorf("expected %s but got %s", expected, result)
+		}
+	})
+
+	t.Run("empty eventCreatedAt skips", func(t *testing.T) {
+		ext := makeExtensions("48h", "private.totalInFirst48h", 5000, "")
+		result, err := AddTotalInWindow(ext, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if result != "" {
+			t.Errorf("expected empty result but got %s", result)
+		}
+	})
 }

@@ -62,6 +62,16 @@ type FundraiserExtensionsConfig struct {
 		}
 	}
 	SplitExerciseTotals SplitExerciseTotals `yaml:"splitExerciseTotals"`
+	TotalInWindow       TotalInWindow       `yaml:"totalInWindow"`
+}
+
+type TotalInWindow struct {
+	Window  string
+	Mapping string
+}
+
+func (t TotalInWindow) IsConfigured() bool {
+	return t.Window != "" && t.Mapping != ""
 }
 
 type TeamExtensionsConfig struct {

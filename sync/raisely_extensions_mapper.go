@@ -14,7 +14,7 @@ type RaiselyExtensionsMapper struct {
 
 // MapFundraisingPageForExtensions computes extension data for a fundraising page
 // and returns an UpdateRaiselyDataRequest to write the results back to Raisely.
-func (r *RaiselyExtensionsMapper) MapFundraisingPageForExtensions(campaign *FundraisingCampaign, p2pRegistrationID string, ctx context.Context) (UpdateRaiselyDataRequest, error) {
+func (r *RaiselyExtensionsMapper) MapFundraisingPageForExtensions(campaign *FundraisingCampaign, p2pRegistrationID string, eventCreatedAt string, ctx context.Context) (UpdateRaiselyDataRequest, error) {
 
 	updateFundraisingPageRequest := UpdateRaiselyDataRequest{
 		P2PID: p2pRegistrationID,
@@ -25,7 +25,7 @@ func (r *RaiselyExtensionsMapper) MapFundraisingPageForExtensions(campaign *Fund
 		return updateFundraisingPageRequest, err
 	}
 
-	fundraiserExtensions := FundraiserExtensions{r.Config.FundraiserExtensions, campaign, data.Page}
+	fundraiserExtensions := FundraiserExtensions{r.Config.FundraiserExtensions, campaign, data.Page, eventCreatedAt}
 
 	updateFundraisingPageRequest.JSON, err = ApplyRaiselyFundraiserExtensions(fundraiserExtensions, data.ExerciseLogs.ExerciseLogs, data.Donations.Donations)
 	return updateFundraisingPageRequest, err
@@ -33,7 +33,7 @@ func (r *RaiselyExtensionsMapper) MapFundraisingPageForExtensions(campaign *Fund
 
 // MapTeamFundraisingPageForExtensions computes extension data for a team and all its members,
 // returning UpdateRaiselyDataRequests to write the results back to Raisely.
-func (r *RaiselyExtensionsMapper) MapTeamFundraisingPageForExtensions(campaign *FundraisingCampaign, p2pTeamID string, ctx context.Context) ([]UpdateRaiselyDataRequest, error) {
+func (r *RaiselyExtensionsMapper) MapTeamFundraisingPageForExtensions(campaign *FundraisingCampaign, p2pTeamID string, eventCreatedAt string, ctx context.Context) ([]UpdateRaiselyDataRequest, error) {
 
 	var updateFundraisingPageRequests []UpdateRaiselyDataRequest
 
@@ -55,7 +55,7 @@ func (r *RaiselyExtensionsMapper) MapTeamFundraisingPageForExtensions(campaign *
 	updateFundraisingPageRequests = append(updateFundraisingPageRequests, updateTeamFundraisingPageRequest)
 
 	for _, teamMember := range team.TeamMembers {
-		updateFundraisingPageRequest, err := r.MapFundraisingPageForExtensions(campaign, teamMember.P2PID, ctx)
+		updateFundraisingPageRequest, err := r.MapFundraisingPageForExtensions(campaign, teamMember.P2PID, eventCreatedAt, ctx)
 		if err != nil {
 			return updateFundraisingPageRequests, err
 		}

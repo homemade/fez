@@ -87,9 +87,10 @@ func CalcDaysForStreakFromEntries(entries []StreakableEntry) EpochDays {
 }
 
 type FundraiserExtensions struct {
-	Config   FundraiserExtensionsConfig
-	Campaign *FundraisingCampaign
-	Page     FundraisingPage
+	Config         FundraiserExtensionsConfig
+	Campaign       *FundraisingCampaign
+	Page           FundraisingPage
+	EventCreatedAt string
 }
 
 func (e FundraiserExtensions) MaxConfiguredDaysForActivityStreak() int {
@@ -182,6 +183,52 @@ func AddMissingDaysForStreak(max int, days []int, value string) string {
 	return result
 }
 
+func AddTotalInWindow(extensions FundraiserExtensions, json string) (string, error) {
+	if !extensions.Config.TotalInWindow.IsConfigured() {
+		return json, nil
+	}
+
+	windowDuration, err := time.ParseDuration(extensions.Config.TotalInWindow.Window)
+	if err != nil {
+		return json, fmt.Errorf("failed to parse totalInWindow window duration %q: %w", extensions.Config.TotalInWindow.Window, err)
+	}
+
+	profileCreatedAt, exists := extensions.Page.Source.StringForPath("createdAt")
+	if !exists || profileCreatedAt == "" {
+		log.Printf("Warning: totalInWindow skipped — profile createdAt not found")
+		return json, nil
+	}
+
+	profileCreatedAtTime, err := time.Parse(time.RFC3339, profileCreatedAt)
+	if err != nil {
+		log.Printf("Warning: totalInWindow skipped — failed to parse profile createdAt %q: %v", profileCreatedAt, err)
+		return json, nil
+	}
+
+	if extensions.EventCreatedAt == "" {
+		log.Printf("Warning: totalInWindow skipped — eventCreatedAt not provided")
+		return json, nil
+	}
+
+	eventCreatedAtTime, err := time.Parse(time.RFC3339, extensions.EventCreatedAt)
+	if err != nil {
+		log.Printf("Warning: totalInWindow skipped — failed to parse eventCreatedAt %q: %v", extensions.EventCreatedAt, err)
+		return json, nil
+	}
+
+	windowEnd := profileCreatedAtTime.Add(windowDuration)
+	if eventCreatedAtTime.After(windowEnd) {
+		return json, nil
+	}
+
+	total, _ := extensions.Page.Source.IntForPath("total")
+	result, err := sjson.Set(json, "data."+extensions.Config.TotalInWindow.Mapping, total)
+	if err != nil {
+		return json, err
+	}
+	return result, nil
+}
+
 func ApplyRaiselyFundraiserExtensions(extensions FundraiserExtensions, exerciseLogs []ExerciseLogEntry, donations []Donation) (string, error) {
 	var err error
 	var result string
@@ -239,6 +286,12 @@ func ApplyRaiselyFundraiserExtensions(extensions FundraiserExtensions, exerciseL
 
 	// split exercise totals
 	result, err = AddSplitExerciseTotals(extensions.Campaign, extensions.Page, extensions.Config.SplitExerciseTotals, result)
+	if err != nil {
+		return result, err
+	}
+
+	// total in window
+	result, err = AddTotalInWindow(extensions, result)
 	return result, err
 
 }
