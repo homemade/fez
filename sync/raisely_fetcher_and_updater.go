@@ -17,8 +17,6 @@ import (
 const (
 	FundraisingProfilesSinceTimestampFormat        = "2006-01-02T15:04:05.999"
 	FundraisingProfilesSinceLimit                  = "1000"
-	FundraisingProfileDonationsUpToTimestampFormat = "2006-01-02T15:04:05.999"
-	FundraisingProfileDonationsUpToLimit           = "1000"
 	FundraisingProfileExerciseLogsLimit            = "1000"
 	FundraisingProfileDonationsLimit               = "1000"
 )
@@ -90,13 +88,6 @@ type CampaignDefault struct {
 type FundraisingProfilesSince struct {
 	Timestamp time.Time
 	Results   []FundraisingProfile `json:"data"`
-}
-
-type FundraisingProfileDonationsUpTo struct {
-	UpTo                       time.Time
-	Donations                  []map[string]interface{} `json:"data"`
-	TotalDonationAmount        int
-	TotalRegistrationFeeAmount int
 }
 
 type FundraisingProfileExerciseLogs struct {
@@ -316,46 +307,6 @@ func (p FundraisingProfile) TeamP2PID(fundraisingCampaign *FundraisingCampaign) 
 	return ""
 }
 
-func (d *FundraisingProfileDonationsUpTo) fetchRaiselyData(params fetchRaiselyDataParams) error {
-	raiselyError := RaiselyError{}
-	err := params.RaiselyAPIBuilder.
-		Pathf("/v3/profiles/%s/donations", params.P2PID).
-		Param("private", "true").
-		Param("createdAtTo", d.UpTo.Format(FundraisingProfileDonationsUpToTimestampFormat)).
-		Param("limit", FundraisingProfileDonationsUpToLimit).
-		Bearer(params.RaiselyAPIKey).
-		ToJSON(d).
-		ErrorJSON(&raiselyError).
-		Fetch(params.Context)
-	if err != nil {
-		log.Printf("Raisely Error: %+v", raiselyError)
-	}
-
-	// Sum any registration fee
-	for _, donation := range d.Donations {
-		if items, itemsOk := donation["items"].([]map[string]interface{}); itemsOk {
-			for _, i := range items {
-				if fmt.Sprintf("%s", i["type"]) == "REGISTRATION" {
-					if itemAmount, itemAmountOk := i["amount"].(float64); itemAmountOk {
-						d.TotalRegistrationFeeAmount = d.TotalRegistrationFeeAmount + int(itemAmount)
-					}
-				}
-			}
-		}
-	}
-
-	// Sum donations
-	for _, donation := range d.Donations {
-		if amount, amountOk := donation["amount"].(float64); amountOk {
-			d.TotalDonationAmount = d.TotalDonationAmount + int(amount)
-		}
-	}
-	// Remove registration fee total from the donations total
-	d.TotalDonationAmount = d.TotalDonationAmount - d.TotalRegistrationFeeAmount
-
-	return err
-}
-
 func (d *FundraisingProfileDonations) fetchRaiselyData(params fetchRaiselyDataParams) error {
 	raiselyError := RaiselyError{}
 	err := params.RaiselyAPIBuilder.
@@ -562,15 +513,6 @@ func (r *RaiselyFetcherAndUpdater) FetchProfilesSince(campaignP2PID string, sinc
 	}
 	err := profiles.fetchRaiselyData(r.fetchParams(campaignP2PID, ctx))
 	return profiles, err
-}
-
-// FetchDonationsUpTo fetches donations for a profile up to the given time.
-func (r *RaiselyFetcherAndUpdater) FetchDonationsUpTo(profileP2PID string, upTo time.Time, ctx context.Context) (FundraisingProfileDonationsUpTo, error) {
-	donations := FundraisingProfileDonationsUpTo{
-		UpTo: upTo,
-	}
-	err := donations.fetchRaiselyData(r.fetchParams(profileP2PID, ctx))
-	return donations, err
 }
 
 func (r *RaiselyFetcherAndUpdater) UpdateRaiselyData(request UpdateRaiselyDataRequest, ctx context.Context) (int, error) {

@@ -1,26 +1,16 @@
 package sync
 
 import (
-	"context"
 	"fmt"
 	"log"
-	"strconv"
 	"strings"
-	"time"
 )
-
-// DonationsUpToFetcher fetches donation data up to a specific time for a fundraising profile.
-type DonationsUpToFetcher interface {
-	FetchDonationsUpTo(p2pID string, upTo time.Time, ctx context.Context) (FundraisingProfileDonationsUpTo, error)
-}
 
 // ApplyFundraiserFieldTransformsParams contains parameters for applying fundraiser field transforms.
 type ApplyFundraiserFieldTransformsParams struct {
-	Config           Config
-	Campaign         *FundraisingCampaign
-	Destination      Mappable
-	Ctx              context.Context
-	DonationsFetcher DonationsUpToFetcher
+	Config      Config
+	Campaign    *FundraisingCampaign
+	Destination Mappable
 }
 
 // ApplyFundraiserFieldTransforms applies configured transforms to a field and maps it to the provided destination.
@@ -68,43 +58,6 @@ func ApplyFundraiserFieldTransforms(params ApplyFundraiserFieldTransformsParams)
 			if s := fmt.Sprintf("%v", fields[field]); arg == s {
 				log.Printf("Warning: %s has value of '%v'\n", field, s)
 			}
-
-		case "onlyIfSelfDonatedDuringRegistrationWindow":
-			// Parse the two params: donation amount and registration window duration
-			argParams := strings.Split(arg, ",")
-			if len(argParams) != 2 {
-				return fmt.Errorf("invalid argument %s for transform %s expected two params", arg, transform)
-			}
-
-			donationAmount, err := strconv.Atoi(argParams[0])
-			if err != nil {
-				return fmt.Errorf("invalid first param in argument %s for transform %s %w", arg, transform, err)
-			}
-
-			windowDuration, err := time.ParseDuration(argParams[1])
-			if err != nil {
-				return fmt.Errorf("invalid second param in argument %s for transform %s %w", arg, transform, err)
-			}
-
-			registrationDateField := fmt.Sprintf("tme:cm:%s-registration-date", params.Config.CampaignPrefix)
-			if registrationDate, ok := fields[registrationDateField].(string); ok {
-				registrationTime, err := time.Parse(time.RFC3339, registrationDate)
-				if err != nil {
-					return fmt.Errorf("failed to parse %s %w", registrationDateField, err)
-				}
-
-				p2pRegistrationId := fields[fmt.Sprintf("str:cm:%s-p2p-registration-id", params.Config.CampaignPrefix)].(string)
-				donations, err := params.DonationsFetcher.FetchDonationsUpTo(p2pRegistrationId, registrationTime.Add(windowDuration), params.Ctx)
-				if err != nil {
-					return fmt.Errorf("failed to check self donation totals in registration window %w", err)
-				}
-
-				if donations.TotalDonationAmount >= donationAmount {
-					continue // if all Ok keep the field
-				}
-			}
-			// default to removing the field
-			params.Destination.DeleteField(field)
 
 		case "toUpper":
 			if fieldValue, ok := fields[field].(string); ok {

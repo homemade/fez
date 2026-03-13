@@ -1,8 +1,6 @@
 package sync
 
 import (
-	"context"
-
 	"github.com/tidwall/gjson"
 )
 
@@ -32,13 +30,11 @@ func (m *RaiselyMapper) ClearTeamFields(destination Mappable) {
 }
 
 // ApplyFundraiserTransforms applies fundraiser field transforms and maps them to the provided destination.
-func (m *RaiselyMapper) ApplyFundraiserTransforms(destination Mappable, campaign *FundraisingCampaign, ctx context.Context) error {
+func (m *RaiselyMapper) ApplyFundraiserTransforms(destination Mappable, campaign *FundraisingCampaign) error {
 	return ApplyFundraiserFieldTransforms(ApplyFundraiserFieldTransformsParams{
-		Config:           m.Config,
-		Campaign:         campaign,
-		Destination:      destination,
-		Ctx:              ctx,
-		DonationsFetcher: m.RaiselyFetcherAndUpdater,
+		Config:      m.Config,
+		Campaign:    campaign,
+		Destination: destination,
 	})
 }
 
