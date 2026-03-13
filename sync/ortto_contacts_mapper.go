@@ -39,7 +39,7 @@ func (o *OrttoContactsMapper) MapFundraisingPage(campaign *FundraisingCampaign, 
 	var contact OrttoContact
 	contact.Fields = make(map[string]interface{})
 	o.RaiselyMapper.MapFundraiserFields(data.Page.Source, &contact)
-	if err = o.RaiselyMapper.ApplyFundraiserTransforms(&contact, campaign, ctx, false); err != nil {
+	if err = o.RaiselyMapper.ApplyFundraiserTransforms(&contact, campaign, ctx); err != nil {
 		return orttoRequest, err
 	}
 	// To support people leaving teams we also need to set any team field mappings to empty
@@ -75,7 +75,7 @@ func (o *OrttoContactsMapper) MapTeamFundraisingPage(campaign *FundraisingCampai
 		contact.Fields = make(map[string]interface{})
 		o.RaiselyMapper.MapFundraiserFields(page.Source, &contact)
 		o.RaiselyMapper.MapTeamFields(teamPage.Source, &contact)
-		if err := o.RaiselyMapper.ApplyFundraiserTransforms(&contact, campaign, ctx, false); err != nil {
+		if err := o.RaiselyMapper.ApplyFundraiserTransforms(&contact, campaign, ctx); err != nil {
 			return result, err
 		}
 		if err := o.RaiselyMapper.ApplyTeamTransforms(page, teamPage, &contact); err != nil {
@@ -113,7 +113,7 @@ func (o *OrttoContactsMapper) MapTrackingData(campaign *FundraisingCampaign, dat
 	var contact OrttoContact
 	contact.Fields = make(map[string]interface{})
 	o.RaiselyMapper.MapFundraiserFields(source, &contact)
-	if err = o.RaiselyMapper.ApplyFundraiserTransforms(&contact, campaign, ctx, false); err != nil {
+	if err = o.RaiselyMapper.ApplyFundraiserTransforms(&contact, campaign, ctx); err != nil {
 		return result, err
 	}
 

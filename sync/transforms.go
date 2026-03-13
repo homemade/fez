@@ -21,9 +21,6 @@ type ApplyFundraiserFieldTransformsParams struct {
 	Destination      Mappable
 	Ctx              context.Context
 	DonationsFetcher DonationsUpToFetcher
-	// SkipDonationCheck when true, logs a warning instead of checking donations for
-	// the onlyIfSelfDonatedDuringRegistrationWindow transform. Used for activities.
-	SkipDonationCheck bool
 }
 
 // ApplyFundraiserFieldTransforms applies configured transforms to a field and maps it to the provided destination.
@@ -73,13 +70,6 @@ func ApplyFundraiserFieldTransforms(params ApplyFundraiserFieldTransformsParams)
 			}
 
 		case "onlyIfSelfDonatedDuringRegistrationWindow":
-			if params.SkipDonationCheck {
-				// For activities, skip this transform as it requires complex donation checking
-				// that is specific to contacts. The field is kept for activities.
-				log.Printf("Warning: transform 'onlyIfSelfDonatedDuringRegistrationWindow' is not supported for activities, field %s kept", field)
-				continue
-			}
-
 			// Parse the two params: donation amount and registration window duration
 			argParams := strings.Split(arg, ",")
 			if len(argParams) != 2 {

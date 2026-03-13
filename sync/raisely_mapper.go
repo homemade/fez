@@ -32,14 +32,13 @@ func (m *RaiselyMapper) ClearTeamFields(destination Mappable) {
 }
 
 // ApplyFundraiserTransforms applies fundraiser field transforms and maps them to the provided destination.
-func (m *RaiselyMapper) ApplyFundraiserTransforms(destination Mappable, campaign *FundraisingCampaign, ctx context.Context, skipDonationCheck bool) error {
+func (m *RaiselyMapper) ApplyFundraiserTransforms(destination Mappable, campaign *FundraisingCampaign, ctx context.Context) error {
 	return ApplyFundraiserFieldTransforms(ApplyFundraiserFieldTransformsParams{
-		Config:            m.Config,
-		Campaign:          campaign,
-		Destination:       destination,
-		Ctx:               ctx,
-		DonationsFetcher:  m.RaiselyFetcherAndUpdater,
-		SkipDonationCheck: skipDonationCheck,
+		Config:           m.Config,
+		Campaign:         campaign,
+		Destination:      destination,
+		Ctx:              ctx,
+		DonationsFetcher: m.RaiselyFetcherAndUpdater,
 	})
 }
 
