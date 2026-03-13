@@ -171,6 +171,13 @@ func Init(flavour Flavour) {
 			return fmt.Sprintf("%d", int(f))
 		})
 
+		gjson.AddModifier("default", func(json, arg string) string {
+			if json == "" || json == "null" {
+				return arg
+			}
+			return json
+		})
+
 	}
 
 }
