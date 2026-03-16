@@ -312,16 +312,17 @@ func (s *Service) CheckRaiselyWebhooks(webhookDomain string, extensionsConfig *C
 		results = append(results, WebhookStatus{URL: mainURL, Exists: false, MissingEvents: mainEvents})
 	}
 
-	// Check extensions webhook if configured
+	// Check extensions webhook if extensions config is present
 	if extensionsConfig != nil {
 		extEvents := extensionsConfig.API.Settings.RaiselyWebhookEvents
-		if len(extEvents) > 0 {
-			extURL := fmt.Sprintf("https://%s/api/raisely/extensions", webhookDomain)
-			if events, ok := webhooksByURL[extURL]; ok {
-				results = append(results, *s.buildWebhookStatus(extURL, true, events, extEvents))
-			} else {
-				results = append(results, WebhookStatus{URL: extURL, Exists: false, MissingEvents: extEvents})
-			}
+		if len(extEvents) == 0 {
+			return nil, fmt.Errorf("extensions config found but no raiselyWebhookEvents configured in api.settings.raiselyWebhookEvents")
+		}
+		extURL := fmt.Sprintf("https://%s/api/raisely/extensions", webhookDomain)
+		if events, ok := webhooksByURL[extURL]; ok {
+			results = append(results, *s.buildWebhookStatus(extURL, true, events, extEvents))
+		} else {
+			results = append(results, WebhookStatus{URL: extURL, Exists: false, MissingEvents: extEvents})
 		}
 	}
 
