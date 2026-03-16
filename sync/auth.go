@@ -8,6 +8,26 @@ import (
 	"strings"
 )
 
+// RequireOrgHeader reads and validates the X-Org header from the request.
+// Returns the org value or an error if the header is missing or empty.
+func RequireOrgHeader(r *http.Request) (string, error) {
+	org := strings.TrimSpace(r.Header.Get("X-Org"))
+	if org == "" {
+		return "", fmt.Errorf("missing or empty X-Org header")
+	}
+	return org, nil
+}
+
+// ValidateOrgMatchesMappingPath checks that the mapping path starts with the
+// expected org prefix (case-insensitive). Returns an error if it doesn't match.
+func ValidateOrgMatchesMappingPath(org string, mappingPath string) error {
+	expectedPrefix := strings.ToLower(org) + "/"
+	if !strings.HasPrefix(strings.ToLower(mappingPath), expectedPrefix) {
+		return fmt.Errorf("mapping path %q does not match org %q", mappingPath, org)
+	}
+	return nil
+}
+
 // RequireAPISecret validates that a request contains the expected secret.
 // It reads the expected secret from the environment variable named by envVarName,
 // then compares it against the value from the request header named by headerName.
