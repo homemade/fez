@@ -218,6 +218,107 @@ func (o OrttoFetcherAndUpdater) CreateCustomPersonField(name, fieldType string, 
 	return nil
 }
 
+// GetActivityFeedForContact retrieves the activity feed for a contact from the Ortto API.
+// It filters by the specified activity ID and returns the activities.
+// The contact is identified by the provided field ID and value.
+// Note: contactFieldValue is a string because fields used for contact
+// identification have always been string-type fields (str:cm:... or str::email).
+func (o OrttoFetcherAndUpdater) GetActivityFeedForContact(
+	contactFieldID string,
+	contactFieldValue string,
+	activityID string,
+	ctx context.Context,
+) ([]OrttoActivityFeedEntry, error) {
+	// Step 1: Look up the contact to get their person_id
+	contactFieldValueJSON, err := json.Marshal(contactFieldValue)
+	if err != nil {
+		return nil, err
+	}
+
+	contactResponse := struct {
+		Contacts []struct {
+			ID string `json:"id"`
+		} `json:"contacts"`
+		Error OrttoError
+	}{}
+
+	filterOperator := "$str::is"
+	if contactFieldID == "str::email" {
+		filterOperator = "$str::is"
+	}
+
+	err = o.OrttoAPIBuilder().
+		Path("/v1/person/get").
+		Header("X-Api-Key", o.Config.API.Keys.Ortto).
+		Post().
+		BodyBytes([]byte(fmt.Sprintf(`
+		{
+			"limit": 1,
+			"offset": 0,
+			"fields": ["%s"],
+			"filter": {
+				"%s": {
+					"field_id": "%s",
+					"value": %s
+				}
+			}
+		}
+		`, contactFieldID, filterOperator, contactFieldID, contactFieldValueJSON))).
+		ToJSON(&contactResponse).
+		ErrorJSON(&contactResponse.Error).
+		Fetch(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to look up contact by %s: %w", contactFieldID, err)
+	}
+
+	if len(contactResponse.Contacts) == 0 {
+		return nil, nil
+	}
+
+	personID := contactResponse.Contacts[0].ID
+
+	// Step 2: Retrieve the activity feed for the contact
+	var feedResponse OrttoActivityFeedResponse
+
+	err = o.OrttoAPIBuilder().
+		Path("/v1/person/get/activities").
+		Header("X-Api-Key", o.Config.API.Keys.Ortto).
+		Post().
+		BodyBytes([]byte(fmt.Sprintf(`
+		{
+			"person_id": "%s",
+			"activities": ["%s"],
+			"limit": 1
+		}
+		`, personID, activityID))).
+		ToJSON(&feedResponse).
+		ErrorJSON(&feedResponse.Error).
+		Fetch(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get activity feed for contact %s: %w", personID, err)
+	}
+
+	return feedResponse.Activities, nil
+}
+
+// OrttoFieldDisplayLabel converts an Ortto field ID to its display label.
+// e.g. "str:cm:prefix-field-name" → "PREFIX Field Name"
+func OrttoFieldDisplayLabel(fieldID string) string {
+	label := ""
+	keyParts := strings.Split(fieldID, ":")
+	if len(keyParts) == 3 {
+		fieldNameParts := strings.Split(keyParts[2], "-")
+		for i, s := range fieldNameParts {
+			if i == 0 {
+				label = strings.ToUpper(s)
+			} else {
+				label = label + " " + strcase.ToCamel(s)
+			}
+		}
+	}
+	return label
+}
+
 // CheckCustomFields checks that the specified custom fields exist in Ortto.
 // fieldstocheck maps field IDs to the initial status (e.g. "processing").
 // orttotypes maps field IDs to their expected Ortto type label.
@@ -278,20 +379,7 @@ func (o OrttoFetcherAndUpdater) CheckCustomFields(fieldsToCheck map[string]strin
 
 	for k, v := range result {
 		if v != statusOK {
-			// generate ortto label
-			orttoLabel := ""
-			keyParts := strings.Split(k, ":")
-			if len(keyParts) == 3 {
-				// the field name is in the last part of the key
-				fieldNameParts := strings.Split(keyParts[2], "-")
-				for i, s := range fieldNameParts {
-					if i == 0 { // first part of the field name is the prefix, which is upper cased in the label
-						orttoLabel = strings.ToUpper(s)
-					} else { // the other parts are converted to camel case for the label
-						orttoLabel = orttoLabel + " " + strcase.ToCamel(s)
-					}
-				}
-			}
+			orttoLabel := OrttoFieldDisplayLabel(k)
 			result[k] = fmt.Sprintf(`%s %s (%s)`, statusMissing, orttoLabel, orttoTypes[k])
 		}
 	}

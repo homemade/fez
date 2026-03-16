@@ -295,6 +295,19 @@ func (r OrttoActivitiesRequest) AsOrttoActivitiesRequest() (OrttoActivitiesReque
 	return r, true
 }
 
+// OrttoActivityFeedEntry represents a single activity in a contact's activity feed.
+type OrttoActivityFeedEntry struct {
+	ActivityID string                 `json:"field_id"`
+	Created    string                 `json:"created_at"`
+	Attributes map[string]interface{} `json:"attr"`
+}
+
+// OrttoActivityFeedResponse is the response from the activity feed API.
+type OrttoActivityFeedResponse struct {
+	Activities []OrttoActivityFeedEntry `json:"activities"`
+	Error      OrttoError
+}
+
 type OrttoError struct {
 	RequestID string `json:"request_id"`
 	Code      int    `json:"code"`
