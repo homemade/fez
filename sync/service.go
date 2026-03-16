@@ -281,6 +281,92 @@ func (s *Service) buildWebhookStatus(url string, exists bool, existingEvents, re
 	}
 }
 
+// CheckRaiselyWebhooks checks the main webhook and, if an extensions config
+// is provided, the extensions webhook too. Lists webhooks once and checks
+// both URLs against the result.
+// Does NOT require FetchCampaign.
+func (s *Service) CheckRaiselyWebhooks(webhookDomain string, extensionsConfig *Config, ctx context.Context) ([]WebhookStatus, error) {
+	mainURL := fmt.Sprintf("https://%s/api/raisely/webhooks", webhookDomain)
+	mainEvents := s.sc.Config.API.Settings.RaiselyWebhookEvents
+	if len(mainEvents) == 0 {
+		return nil, fmt.Errorf("no webhook events configured in api.settings.raiselyWebhookEvents")
+	}
+
+	webhooks, err := s.fetcher.ListWebhooks(s.sc.Campaign, ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list webhooks: %w", err)
+	}
+
+	// Build lookup of existing webhooks by URL
+	webhooksByURL := make(map[string][]string)
+	for _, wh := range webhooks {
+		webhooksByURL[wh.URL] = wh.Events
+	}
+
+	var results []WebhookStatus
+
+	// Check main webhook
+	if events, ok := webhooksByURL[mainURL]; ok {
+		results = append(results, *s.buildWebhookStatus(mainURL, true, events, mainEvents))
+	} else {
+		results = append(results, WebhookStatus{URL: mainURL, Exists: false, MissingEvents: mainEvents})
+	}
+
+	// Check extensions webhook if configured
+	if extensionsConfig != nil {
+		extEvents := extensionsConfig.API.Settings.RaiselyWebhookEvents
+		if len(extEvents) > 0 {
+			extURL := fmt.Sprintf("https://%s/api/raisely/extensions", webhookDomain)
+			if events, ok := webhooksByURL[extURL]; ok {
+				results = append(results, *s.buildWebhookStatus(extURL, true, events, extEvents))
+			} else {
+				results = append(results, WebhookStatus{URL: extURL, Exists: false, MissingEvents: extEvents})
+			}
+		}
+	}
+
+	return results, nil
+}
+
+// EnsureRaiselyWebhooks calls CheckRaiselyWebhooks, then creates any missing
+// webhooks. Returns a status for each webhook and whether each was created.
+// Does NOT require FetchCampaign.
+func (s *Service) EnsureRaiselyWebhooks(webhookDomain string, extensionsConfig *Config, ctx context.Context) ([]WebhookStatus, []bool, error) {
+	statuses, err := s.CheckRaiselyWebhooks(webhookDomain, extensionsConfig, ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	created := make([]bool, len(statuses))
+	for i, status := range statuses {
+		if status.Exists {
+			continue
+		}
+
+		// Determine which events to use for creation
+		var requiredEvents []string
+		if i == 0 {
+			requiredEvents = s.sc.Config.API.Settings.RaiselyWebhookEvents
+		} else if extensionsConfig != nil {
+			requiredEvents = extensionsConfig.API.Settings.RaiselyWebhookEvents
+		}
+
+		_, err := s.fetcher.CreateWebhook(status.URL, s.sc.Campaign, requiredEvents, ctx)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to create webhook at %s: %w", status.URL, err)
+		}
+
+		statuses[i] = WebhookStatus{
+			URL:           status.URL,
+			Exists:        true,
+			PresentEvents: requiredEvents,
+		}
+		created[i] = true
+	}
+
+	return statuses, created, nil
+}
+
 // --- Accessors for advanced use cases ---
 
 // Fetcher returns the underlying RaiselyFetcherAndUpdater.
