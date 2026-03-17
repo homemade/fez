@@ -3,14 +3,18 @@ package sync
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
 	"strings"
+	gosync "sync"
 
 	"github.com/carlmjohnson/requests"
 	"github.com/iancoleman/strcase"
 )
+
+const ActivityFeedConcurrencyLimit = 5
 
 // OrttoFetcherAndUpdater handles all Ortto API operations.
 // It embeds *SyncContext for shared sync configuration.
@@ -389,4 +393,107 @@ func (o OrttoFetcherAndUpdater) CheckCustomFields(fieldsToCheck map[string]strin
 	}
 
 	return result, err
+}
+
+// CSVEnrichmentRow represents a single row to enrich with Ortto activity data.
+type CSVEnrichmentRow struct {
+	ContactFieldID    string
+	ContactFieldValue string
+}
+
+// CSVEnrichmentResult holds the enrichment result for a single row.
+type CSVEnrichmentResult struct {
+	Attributes map[string]string // attribute name → value
+	Err        error
+}
+
+// EnrichCSVRows concurrently enriches rows with Ortto activity feed data using a
+// worker pool pattern (fixed goroutines pulling from a shared channel).
+// Returns per-row results and the union of all attribute keys found.
+func (o OrttoFetcherAndUpdater) EnrichCSVRows(rows []CSVEnrichmentRow, activityID string, ctx context.Context) ([]CSVEnrichmentResult, []string) {
+	results := make([]CSVEnrichmentResult, len(rows))
+	errs := make([]error, len(rows))
+
+	work := make(chan int, len(rows))
+	for i := range rows {
+		work <- i
+	}
+	close(work)
+
+	var wg gosync.WaitGroup
+	wg.Add(ActivityFeedConcurrencyLimit)
+	for range ActivityFeedConcurrencyLimit {
+		go func() {
+			defer wg.Done()
+			for i := range work {
+				results[i] = o.enrichRow(rows[i], activityID, ctx)
+				errs[i] = results[i].Err
+			}
+		}()
+	}
+	wg.Wait()
+
+	if err := errors.Join(errs...); err != nil {
+		log.Printf("csv enrichment errors: %v", err)
+	}
+
+	// Collect union of all attribute keys
+	keySet := make(map[string]bool)
+	for _, r := range results {
+		for k := range r.Attributes {
+			keySet[k] = true
+		}
+	}
+	keys := make([]string, 0, len(keySet))
+	for k := range keySet {
+		keys = append(keys, k)
+	}
+
+	return results, keys
+}
+
+func (o OrttoFetcherAndUpdater) enrichRow(row CSVEnrichmentRow, activityID string, ctx context.Context) CSVEnrichmentResult {
+	result := CSVEnrichmentResult{Attributes: make(map[string]string)}
+
+	if row.ContactFieldValue == "" {
+		return result
+	}
+
+	activities, err := o.GetActivityFeedForContact(
+		row.ContactFieldID,
+		row.ContactFieldValue,
+		activityID,
+		ctx,
+	)
+	if err != nil {
+		result.Err = fmt.Errorf("contact %s: %w", row.ContactFieldValue, err)
+		return result
+	}
+
+	if len(activities) == 0 {
+		return result
+	}
+
+	// Use the latest activity (first entry)
+	latest := activities[0]
+	for k, v := range latest.Attributes {
+		// Filter out object-type attributes
+		if strings.HasPrefix(k, "obj:") {
+			continue
+		}
+		name := ExtractAttributeName(k)
+		result.Attributes[name] = fmt.Sprintf("%v", v)
+	}
+
+	return result
+}
+
+// ExtractAttributeName returns the name portion of an Ortto field key.
+// e.g. "str:cm:shirt-size" → "shirt-size"
+func ExtractAttributeName(key string) string {
+	parts := strings.Split(key, ":")
+	if len(parts) >= 1 {
+		return parts[len(parts)-1]
+	}
+	return key
 }
