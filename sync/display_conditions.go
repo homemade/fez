@@ -12,19 +12,19 @@ import (
 // DisplayConditionFieldResult represents the result of validating field references
 // in a single display condition.
 type DisplayConditionFieldResult struct {
-	Description string
-	Fields      []string // Extracted activity field names
-	Valid       []string // Fields found in mapping
-	Invalid     []string // Fields not found in mapping
+	Description string   `json:"description"`
+	Fields      []string `json:"fields,omitempty"`      // Extracted activity field names
+	Valid       []string `json:"valid,omitempty"`        // Fields found in mapping
+	Invalid     []string `json:"invalid,omitempty"`      // Fields not found in mapping
 }
 
 // DisplayConditionRenderResult represents the result of Liquid rendering validation
 // for a single display condition.
 type DisplayConditionRenderResult struct {
-	Description    string
-	ExpectTrueOK   *bool  // nil if no expectTrue data, true/false for pass/fail
-	ExpectFalseOK  *bool  // nil if no expectFalse data, true/false for pass/fail
-	Error          string // Parse/render error if any
+	Description   string `json:"description"`
+	ExpectTrueOK  *bool  `json:"expectTrueOK"`  // nil if no expectTrue data, true/false for pass/fail
+	ExpectFalseOK *bool  `json:"expectFalseOK"` // nil if no expectFalse data, true/false for pass/fail
+	Error         string `json:"error,omitempty"` // Parse/render error if any
 }
 
 // activityFieldPattern matches activity.custom.<activity-name>.<field-name> references.
@@ -156,8 +156,8 @@ func buildLiquidContext(activityName string, data map[string]interface{}) map[st
 // DisplayConditionSyntaxResult represents the result of checking a single display condition
 // for unsupported Liquid syntax.
 type DisplayConditionSyntaxResult struct {
-	Description      string
-	UnsupportedTerms []string // e.g. ["blank"]
+	Description      string   `json:"description"`
+	UnsupportedTerms []string `json:"unsupportedTerms,omitempty"` // e.g. ["blank"]
 }
 
 // unsupportedLiquidTerms lists Liquid keywords that are not supported by Ortto's Liquid implementation.
@@ -184,81 +184,89 @@ func ValidateDisplayConditionSyntax(entries []DisplayConditionEntry) []DisplayCo
 	return results
 }
 
-// FormatSyntaxValidationResults formats syntax validation results as a human-readable string.
-func FormatSyntaxValidationResults(results []DisplayConditionSyntaxResult) string {
-	var sb strings.Builder
-	for _, r := range results {
-		if len(r.UnsupportedTerms) > 0 {
-			sb.WriteString(fmt.Sprintf("❌ %q — unsupported Liquid syntax: %s (not supported by Ortto)\n",
-				r.Description,
-				strings.Join(r.UnsupportedTerms, ", ")))
-			sb.WriteString("   hint: use {% assign var_len_<field> = <path> | size %}{% if var_len_<field> > 0 %} instead of != blank\n")
-		} else {
-			sb.WriteString(fmt.Sprintf("✅ %q\n", r.Description))
+// FormatDisplayConditionTable formats all display condition results as a combined table.
+// All three slices must be the same length and in the same order (from the same entries).
+func FormatDisplayConditionTable(
+	syntax []DisplayConditionSyntaxResult,
+	fields []DisplayConditionFieldResult,
+	render []DisplayConditionRenderResult,
+) string {
+	if len(syntax) == 0 {
+		return ""
+	}
+
+	// Find max description width
+	descWidth := len("Description")
+	for _, s := range syntax {
+		if len(s.Description) > descWidth {
+			descWidth = len(s.Description)
 		}
 	}
-	return sb.String()
-}
-
-// FormatFieldValidationResults formats field validation results as a human-readable string.
-func FormatFieldValidationResults(results []DisplayConditionFieldResult) string {
-	var sb strings.Builder
-	for _, r := range results {
-		if len(r.Invalid) > 0 {
-			sb.WriteString(fmt.Sprintf("❌ %q — fields: %s ✓, %s ✗ (not in webhook mapping)\n",
-				r.Description,
-				strings.Join(r.Valid, ", "),
-				strings.Join(r.Invalid, ", ")))
-		} else {
-			sb.WriteString(fmt.Sprintf("✅ %q — fields: %s ✓\n",
-				r.Description,
-				strings.Join(r.Fields, ", ")))
-		}
+	// Cap at a reasonable width
+	if descWidth > 60 {
+		descWidth = 60
 	}
-	return sb.String()
-}
 
-// FormatRenderValidationResults formats render validation results as a human-readable string.
-func FormatRenderValidationResults(results []DisplayConditionRenderResult) string {
 	var sb strings.Builder
-	for _, r := range results {
-		if r.Error != "" {
-			sb.WriteString(fmt.Sprintf("❌ %q — error: %s\n", r.Description, r.Error))
-			continue
+	var notes []string
+
+	// Header
+	sb.WriteString(fmt.Sprintf("  %-*s | Syntax | Fields | Liquid\n", descWidth, "Description"))
+	sb.WriteString(fmt.Sprintf("  %s-|--------|--------|-------\n", strings.Repeat("-", descWidth)))
+
+	for i := range syntax {
+		desc := syntax[i].Description
+		if len(desc) > descWidth {
+			desc = desc[:descWidth-1] + "…"
 		}
 
-		// No sample data at all
-		if r.ExpectTrueOK == nil && r.ExpectFalseOK == nil {
-			sb.WriteString(fmt.Sprintf("⚠️  %q — missing expectTrue/expectFalse\n", r.Description))
-			continue
+		// Syntax column
+		syntaxIcon := "✅"
+		if len(syntax[i].UnsupportedTerms) > 0 {
+			syntaxIcon = "❌"
+			notes = append(notes, fmt.Sprintf("  %q — unsupported syntax: %s",
+				syntax[i].Description, strings.Join(syntax[i].UnsupportedTerms, ", ")))
 		}
 
-		parts := []string{}
-		allPass := true
+		// Fields column
+		fieldsIcon := "✅"
+		if i < len(fields) && len(fields[i].Invalid) > 0 {
+			fieldsIcon = "❌"
+			notes = append(notes, fmt.Sprintf("  %q — invalid fields: %s",
+				fields[i].Description, strings.Join(fields[i].Invalid, ", ")))
+		}
 
-		if r.ExpectTrueOK != nil {
-			if *r.ExpectTrueOK {
-				parts = append(parts, "expectTrue: pass")
+		// Liquid column
+		liquidIcon := "✅"
+		if i < len(render) {
+			r := render[i]
+			if r.Error != "" {
+				liquidIcon = "❌"
+				notes = append(notes, fmt.Sprintf("  %q — render error: %s", r.Description, r.Error))
+			} else if r.ExpectTrueOK == nil && r.ExpectFalseOK == nil {
+				liquidIcon = "⚠️ "
+				notes = append(notes, fmt.Sprintf("  %q — missing expectTrue/expectFalse", r.Description))
 			} else {
-				parts = append(parts, "expectTrue: fail (evaluated to false)")
-				allPass = false
+				if r.ExpectTrueOK != nil && !*r.ExpectTrueOK {
+					liquidIcon = "❌"
+					notes = append(notes, fmt.Sprintf("  %q — expectTrue: fail (evaluated to false)", r.Description))
+				}
+				if r.ExpectFalseOK != nil && !*r.ExpectFalseOK {
+					liquidIcon = "❌"
+					notes = append(notes, fmt.Sprintf("  %q — expectFalse: fail (evaluated to true)", r.Description))
+				}
 			}
 		}
 
-		if r.ExpectFalseOK != nil {
-			if *r.ExpectFalseOK {
-				parts = append(parts, "expectFalse: pass")
-			} else {
-				parts = append(parts, "expectFalse: fail (evaluated to true)")
-				allPass = false
-			}
-		}
-
-		icon := "✅"
-		if !allPass {
-			icon = "❌"
-		}
-		sb.WriteString(fmt.Sprintf("%s %q — %s\n", icon, r.Description, strings.Join(parts, ", ")))
+		sb.WriteString(fmt.Sprintf("  %-*s | %s   | %s   | %s\n", descWidth, desc, syntaxIcon, fieldsIcon, liquidIcon))
 	}
+
+	if len(notes) > 0 {
+		sb.WriteString("\n  Notes:\n")
+		for _, n := range notes {
+			sb.WriteString(n + "\n")
+		}
+	}
+
 	return sb.String()
 }
