@@ -2,6 +2,7 @@ package sync
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -86,6 +87,9 @@ func (em EmbeddedMappings) MustFindFirstCampaignMappingFileWithTargetByPath(mapp
 	var files []fs.DirEntry
 	files, err = em.Files.ReadDir(dir)
 	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return result, target, &MappingFileNotFoundError{Path: mappingpath, Dir: dir}
+		}
 		return result, target, err
 	}
 	for _, file := range files {
