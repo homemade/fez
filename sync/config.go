@@ -39,8 +39,9 @@ type APISettings struct {
 	Settings struct {
 		OrttoActivityID              string   `yaml:"orttoActivityId"` // Required if Target is "ortto-activities" (Ortto Activities API)
 		OrttoFundraiserSnapshotField string   `yaml:"orttoFundraiserSnapshotField"`
-		OrttoFundraiserMergeField    string   `yaml:"orttoFundraiserMergeField"` // Required if Target is "ortto-activities" (Ortto Activities API)
-		RaiselyWebhookEvents         []string `yaml:"raiselyWebhookEvents"`
+		OrttoFundraiserMergeField              string   `yaml:"orttoFundraiserMergeField"`              // Required if Target is "ortto-activities" (Ortto Activities API)
+		OrttoActivityAdditionalPersonFields    []string `yaml:"orttoActivityAdditionalPersonFields"`    // Additional fields to treat as person fields (ortto-activities target)
+		RaiselyWebhookEvents                   []string `yaml:"raiselyWebhookEvents"`
 	}
 	Endpoints struct {
 		Ortto string

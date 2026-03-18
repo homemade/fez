@@ -24,7 +24,8 @@ type OrttoActivitiesMapper struct {
 // Person fields are:
 // 1. All builtin fields (contain "::" pattern, e.g., "str::email")
 // 2. The configured OrttoFundraiserMergeField (used to merge contacts in Ortto)
-// 3. The fields "str:cm:address", "str:cm:address-1" and "str:cm:address-2" are also considered person fields.
+// 3. The configured OrttoFundraiserSnapshotField (optional)
+// 4. Any fields listed in OrttoActivityAdditionalPersonFields (e.g., address fields)
 func (o OrttoActivitiesMapper) IsPersonField(fieldID string) bool {
 	// Builtin fields (e.g., str::email) are always person fields
 	if strings.Contains(fieldID, "::") {
@@ -38,9 +39,11 @@ func (o OrttoActivitiesMapper) IsPersonField(fieldID string) bool {
 	if fieldID == o.Config.API.Settings.OrttoFundraiserSnapshotField {
 		return true
 	}
-	// Address fields are also person fields
-	if fieldID == "str:cm:address" || fieldID == "str:cm:address-1" || fieldID == "str:cm:address-2" {
-		return true
+	// Additional person fields from config
+	for _, pf := range o.Config.API.Settings.OrttoActivityAdditionalPersonFields {
+		if fieldID == pf {
+			return true
+		}
 	}
 	return false
 }
