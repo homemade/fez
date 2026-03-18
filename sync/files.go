@@ -9,6 +9,16 @@ import (
 	"strings"
 )
 
+// MappingFileNotFoundError is returned when a campaign mapping file cannot be found.
+type MappingFileNotFoundError struct {
+	Path string
+	Dir  string
+}
+
+func (e *MappingFileNotFoundError) Error() string {
+	return fmt.Sprintf("failed to find mapping file with path: %s in dir: %s", e.Path, e.Dir)
+}
+
 type MappingFile struct {
 	Name   string
 	Reader io.Reader
@@ -106,7 +116,7 @@ func (em EmbeddedMappings) MustFindFirstCampaignMappingFileWithTargetByPath(mapp
 		}
 	}
 	if result.Name == "" {
-		err = fmt.Errorf("failed to find mapping file with path: %s in dir: %s", mappingpath, dir)
+		err = &MappingFileNotFoundError{Path: mappingpath, Dir: dir}
 	}
 	return result, target, err
 }
