@@ -102,17 +102,30 @@ func (s *Service) MapFundraisingProfile(profileID string, ctx context.Context) (
 
 	team := profile.TeamP2PID(s.campaign)
 	if team != "" {
-		return s.mapper.MapTeamFundraisingPage(s.campaign, team, ctx)
+		teamData, err := s.fetcher.FetchTeamData(team, ctx)
+		if err != nil {
+			return nil, fmt.Errorf("failed to fetch team data for %s: %w", team, err)
+		}
+		return s.mapper.MapTeamFundraisingPage(s.campaign, teamData)
 	}
-	return s.mapper.MapFundraisingPage(s.campaign, profileID, ctx)
+
+	data, err := s.fetcher.FetchFundraiserData(profileID, ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch fundraiser data for %s: %w", profileID, err)
+	}
+	return s.mapper.MapFundraisingPage(s.campaign, data)
 }
 
 // MapByWebhookModel maps using model type information already known from
 // the webhook payload, avoiding a redundant profile fetch.
+// For INDIVIDUAL profiles with ortto-activities target, also appends any
+// unprocessed referral activities to the request. The returned
+// *UpdateRaiselyDataRequest (if non-nil) should be executed after a
+// successful SendRequest call to mark referrals as processed in Raisely.
 // FetchCampaign must be called first.
-func (s *Service) MapByWebhookModel(modelType, modelID, parentType, parentID string, parentIsCampaignProfile bool, ctx context.Context) (OrttoRequest, error) {
+func (s *Service) MapByWebhookModel(modelType, modelID, parentType, parentID string, parentIsCampaignProfile bool, ctx context.Context) (OrttoRequest, *UpdateRaiselyDataRequest, error) {
 	if err := s.requireMapper(); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	if modelType == "GROUP" ||
@@ -121,14 +134,45 @@ func (s *Service) MapByWebhookModel(modelType, modelID, parentType, parentID str
 		if modelType == "INDIVIDUAL" {
 			teamID = parentID
 		}
-		return s.mapper.MapTeamFundraisingPage(s.campaign, teamID, ctx)
+		teamData, err := s.fetcher.FetchTeamData(teamID, ctx)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to fetch team data: %w", err)
+		}
+		req, err := s.mapper.MapTeamFundraisingPage(s.campaign, teamData)
+		return req, nil, err
 	}
 
 	if modelType == "INDIVIDUAL" {
-		return s.mapper.MapFundraisingPage(s.campaign, modelID, ctx)
+		data, err := s.fetcher.FetchFundraiserData(modelID, ctx)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to fetch fundraiser data: %w", err)
+		}
+
+		req, err := s.mapper.MapFundraisingPage(s.campaign, data)
+		if err != nil {
+			return req, nil, err
+		}
+
+		// Append referral activities if configured (uses same fetched data — no second API call)
+		if s.sc.Config.API.Settings.RaiselyFundraiserReferralsField != "" {
+			if activitiesMapper, ok := s.mapper.(*OrttoActivitiesMapper); ok {
+				referralActivities, raiselyUpdate, err := activitiesMapper.MapFundraiserReferrals(modelID, data)
+				if err != nil {
+					return req, nil, err
+				}
+				if len(referralActivities) > 0 {
+					if activitiesReq, ok := req.(OrttoActivitiesRequest); ok {
+						activitiesReq.Activities = append(activitiesReq.Activities, referralActivities...)
+						return activitiesReq, raiselyUpdate, nil
+					}
+				}
+			}
+		}
+
+		return req, nil, nil
 	}
 
-	return nil, fmt.Errorf("unsupported model type: %s", modelType)
+	return nil, nil, fmt.Errorf("unsupported model type: %s", modelType)
 }
 
 // MapTrackingData maps tracking key-value pairs to an Ortto request.

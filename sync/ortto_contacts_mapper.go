@@ -22,7 +22,7 @@ type OrttoContactsMapper struct {
 }
 
 // MapFundraisingPage maps a fundraising page to an Ortto contacts request.
-func (o *OrttoContactsMapper) MapFundraisingPage(campaign *FundraisingCampaign, p2pRegistrationID string, ctx context.Context) (OrttoRequest, error) {
+func (o *OrttoContactsMapper) MapFundraisingPage(campaign *FundraisingCampaign, data FundraiserData) (OrttoRequest, error) {
 
 	orttoRequest := OrttoContactsRequest{
 		Async:         false,
@@ -31,15 +31,10 @@ func (o *OrttoContactsMapper) MapFundraisingPage(campaign *FundraisingCampaign, 
 		FindStrategy:  0, // Any  - first MergeBy field is prioritised, if a match is not found the second field is then used
 	}
 
-	data, err := o.RaiselyMapper.RaiselyFetcherAndUpdater.FetchFundraiserData(p2pRegistrationID, ctx)
-	if err != nil {
-		return orttoRequest, err
-	}
-
 	var contact OrttoContact
 	contact.Fields = make(map[string]interface{})
 	o.RaiselyMapper.MapFundraiserFields(data.Page.Source, &contact)
-	if err = o.RaiselyMapper.ApplyFundraiserTransforms(&contact, campaign); err != nil {
+	if err := o.RaiselyMapper.ApplyFundraiserTransforms(&contact, campaign); err != nil {
 		return orttoRequest, err
 	}
 	// To support people leaving teams we also need to set any team field mappings to empty
@@ -51,7 +46,7 @@ func (o *OrttoContactsMapper) MapFundraisingPage(campaign *FundraisingCampaign, 
 }
 
 // MapTeamFundraisingPage maps team members' fundraising pages to an Ortto contacts request.
-func (o *OrttoContactsMapper) MapTeamFundraisingPage(campaign *FundraisingCampaign, p2pTeamID string, ctx context.Context) (OrttoRequest, error) {
+func (o *OrttoContactsMapper) MapTeamFundraisingPage(campaign *FundraisingCampaign, data TeamData) (OrttoRequest, error) {
 	result := OrttoContactsRequest{
 		Async:         false,
 		MergeBy:       []string{fmt.Sprintf("str:cm:%s-p2p-registration-id", o.Config.CampaignPrefix), "str::email"},
@@ -59,26 +54,15 @@ func (o *OrttoContactsMapper) MapTeamFundraisingPage(campaign *FundraisingCampai
 		FindStrategy:  0, // Any  - first MergeBy field is prioritised, if a match is not found the second field is then used
 	}
 
-	team, teamPage, err := o.RaiselyMapper.RaiselyFetcherAndUpdater.FetchTeam(p2pTeamID, ctx)
-	if err != nil {
-		return result, err
-	}
-
-	var memberPages []FundraisingPage
-	memberPages, err = o.RaiselyMapper.RaiselyFetcherAndUpdater.FetchTeamMembers(team, ctx)
-	if err != nil {
-		return result, err
-	}
-
-	for _, page := range memberPages {
+	for _, page := range data.MemberPages {
 		var contact OrttoContact
 		contact.Fields = make(map[string]interface{})
 		o.RaiselyMapper.MapFundraiserFields(page.Source, &contact)
-		o.RaiselyMapper.MapTeamFields(teamPage.Source, &contact)
+		o.RaiselyMapper.MapTeamFields(data.TeamPage.Source, &contact)
 		if err := o.RaiselyMapper.ApplyFundraiserTransforms(&contact, campaign); err != nil {
 			return result, err
 		}
-		if err := o.RaiselyMapper.ApplyTeamTransforms(page, teamPage, &contact); err != nil {
+		if err := o.RaiselyMapper.ApplyTeamTransforms(page, data.TeamPage, &contact); err != nil {
 			return result, err
 		}
 		result.Contacts = append(result.Contacts, contact)

@@ -24,7 +24,11 @@ type Config struct {
 	TeamFieldMappings         struct {
 		Custom FieldMappings
 	}
-	TeamFieldTransforms  map[string]string
+	TeamFieldTransforms            map[string]string
+	FundraiserReferralFieldMappings struct {
+		Builtin FieldMappings
+		Custom  FieldMappings
+	} `yaml:"fundraiserReferralFieldMappings"`
 	FundraiserExtensions FundraiserExtensionsConfig
 	TeamExtensions       TeamExtensionsConfig
 }
@@ -42,6 +46,7 @@ type APISettings struct {
 		OrttoFundraiserMergeField              string   `yaml:"orttoFundraiserMergeField"`              // Required if Target is "ortto-activities" (Ortto Activities API)
 		OrttoActivityAdditionalPersonFields    []string `yaml:"orttoActivityAdditionalPersonFields"`    // Additional fields to treat as person fields (ortto-activities target)
 		RaiselyWebhookEvents                   []string `yaml:"raiselyWebhookEvents"`
+		RaiselyFundraiserReferralsField        string   `yaml:"raiselyFundraiserReferralsField"` // Raisely profile field path containing the referrals JSON array
 	}
 	Endpoints struct {
 		Ortto string
@@ -334,6 +339,13 @@ func (u YAMLConfigUnmarshaler) Unmarshal(compev CompositeEnvVar, sources ...Mapp
 			return result, readError(key, err)
 		}
 	}
+	key = "fundraiserReferralFieldMappings"
+	if yaml.Get(key).HasValue() {
+		err = yaml.Get(key).Populate(&result.FundraiserReferralFieldMappings)
+		if err != nil {
+			return result, readError(key, err)
+		}
+	}
 	key = "fundraiserExtensions"
 	err = yaml.Get(key).Populate(&result.FundraiserExtensions)
 	if err != nil {
@@ -355,6 +367,12 @@ func (u YAMLConfigUnmarshaler) Unmarshal(compev CompositeEnvVar, sources ...Mapp
 		}
 		if err == nil {
 			err = u.CRMFieldMapper.ExpandFieldMappings(&result.TeamFieldMappings.Custom, true)
+		}
+		if err == nil {
+			err = u.CRMFieldMapper.ExpandFieldMappings(&result.FundraiserReferralFieldMappings.Builtin, false)
+		}
+		if err == nil {
+			err = u.CRMFieldMapper.ExpandFieldMappings(&result.FundraiserReferralFieldMappings.Custom, true)
 		}
 		if err != nil {
 			return result, err

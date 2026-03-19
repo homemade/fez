@@ -386,6 +386,12 @@ type FundraiserData struct {
 	Donations    FundraisingProfileDonations
 }
 
+type TeamData struct {
+	Team        FundraisingTeam
+	TeamPage    FundraisingPage
+	MemberPages []FundraisingPage
+}
+
 // RaiselyAPIKey returns the Raisely API key from the config.
 func (r *RaiselyFetcherAndUpdater) RaiselyAPIKey() string {
 	return r.Config.API.Keys.Raisely
@@ -455,6 +461,19 @@ func (r *RaiselyFetcherAndUpdater) FetchFundraiserData(p2pID string, ctx context
 	}
 
 	return result, nil
+}
+
+// FetchTeamData fetches a team, its fundraising page, and all member pages.
+func (r *RaiselyFetcherAndUpdater) FetchTeamData(p2pTeamID string, ctx context.Context) (TeamData, error) {
+	team, teamPage, err := r.FetchTeam(p2pTeamID, ctx)
+	if err != nil {
+		return TeamData{}, err
+	}
+	memberPages, err := r.FetchTeamMembers(team, ctx)
+	if err != nil {
+		return TeamData{}, err
+	}
+	return TeamData{Team: team, TeamPage: teamPage, MemberPages: memberPages}, nil
 }
 
 // FetchTeam fetches a team and its fundraising page.

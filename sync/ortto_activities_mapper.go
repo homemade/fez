@@ -8,8 +8,10 @@ import (
 	"log"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/tidwall/gjson"
+	"github.com/tidwall/sjson"
 )
 
 // OrttoActivitiesMapper maps Raisely data to Ortto Activities API format.
@@ -109,7 +111,7 @@ func (o OrttoActivitiesMapper) SeparateFieldsAndAttributesAndSortAttributes(acti
 }
 
 // MapFundraisingPage maps a fundraising page to an Ortto activities request.
-func (o *OrttoActivitiesMapper) MapFundraisingPage(campaign *FundraisingCampaign, p2pRegistrationID string, ctx context.Context) (OrttoRequest, error) {
+func (o *OrttoActivitiesMapper) MapFundraisingPage(campaign *FundraisingCampaign, data FundraiserData) (OrttoRequest, error) {
 
 	var orttoRequest OrttoActivitiesRequest
 
@@ -127,11 +129,6 @@ func (o *OrttoActivitiesMapper) MapFundraisingPage(campaign *FundraisingCampaign
 		MergeStrategy: 2, // Overwrite existing
 	}
 
-	data, err := o.RaiselyMapper.RaiselyFetcherAndUpdater.FetchFundraiserData(p2pRegistrationID, ctx)
-	if err != nil {
-		return orttoRequest, err
-	}
-
 	// Build the activity with person fields
 	activity := OrttoActivity{
 		ActivityID: o.Config.API.Settings.OrttoActivityID,
@@ -140,7 +137,7 @@ func (o *OrttoActivitiesMapper) MapFundraisingPage(campaign *FundraisingCampaign
 	}
 
 	o.RaiselyMapper.MapFundraiserFields(data.Page.Source, &activity)
-	if err = o.RaiselyMapper.ApplyFundraiserTransforms(&activity, campaign); err != nil {
+	if err := o.RaiselyMapper.ApplyFundraiserTransforms(&activity, campaign); err != nil {
 		return orttoRequest, err
 	}
 	// To support people leaving teams we also need to set any team field mappings to empty
@@ -160,7 +157,7 @@ func (o *OrttoActivitiesMapper) MapFundraisingPage(campaign *FundraisingCampaign
 }
 
 // MapTeamFundraisingPage maps team members' fundraising pages to an Ortto activities request.
-func (o *OrttoActivitiesMapper) MapTeamFundraisingPage(campaign *FundraisingCampaign, p2pTeamID string, ctx context.Context) (OrttoRequest, error) {
+func (o *OrttoActivitiesMapper) MapTeamFundraisingPage(campaign *FundraisingCampaign, data TeamData) (OrttoRequest, error) {
 
 	var result OrttoActivitiesRequest
 
@@ -178,18 +175,7 @@ func (o *OrttoActivitiesMapper) MapTeamFundraisingPage(campaign *FundraisingCamp
 		MergeStrategy: 2, // Overwrite existing
 	}
 
-	team, teamPage, err := o.RaiselyMapper.RaiselyFetcherAndUpdater.FetchTeam(p2pTeamID, ctx)
-	if err != nil {
-		return result, err
-	}
-
-	var memberPages []FundraisingPage
-	memberPages, err = o.RaiselyMapper.RaiselyFetcherAndUpdater.FetchTeamMembers(team, ctx)
-	if err != nil {
-		return result, err
-	}
-
-	for _, page := range memberPages {
+	for _, page := range data.MemberPages {
 		activity := OrttoActivity{
 			ActivityID: o.Config.API.Settings.OrttoActivityID,
 			Fields:     make(map[string]interface{}),
@@ -197,11 +183,11 @@ func (o *OrttoActivitiesMapper) MapTeamFundraisingPage(campaign *FundraisingCamp
 		}
 
 		o.RaiselyMapper.MapFundraiserFields(page.Source, &activity)
-		o.RaiselyMapper.MapTeamFields(teamPage.Source, &activity)
+		o.RaiselyMapper.MapTeamFields(data.TeamPage.Source, &activity)
 		if err := o.RaiselyMapper.ApplyFundraiserTransforms(&activity, campaign); err != nil {
 			return result, err
 		}
-		if err := o.RaiselyMapper.ApplyTeamTransforms(page, teamPage, &activity); err != nil {
+		if err := o.RaiselyMapper.ApplyTeamTransforms(page, data.TeamPage, &activity); err != nil {
 			return result, err
 		}
 
@@ -295,6 +281,94 @@ func (o *OrttoActivitiesMapper) SendRequest(req OrttoRequest, ctx context.Contex
 
 	result, err := o.OrttoFetcherAndUpdater.SendActivitiesCreate(activitiesReq, ctx)
 	return result, err
+}
+
+// MapFundraiserReferrals reads an array of referral entries from the fundraiser profile,
+// maps each unprocessed entry to an OrttoActivity using FundraiserReferralFieldMappings,
+// and returns the activities to send plus a Raisely write-back request that marks them as processed.
+// Returns nil, nil, nil if referrals are not configured or there are no unprocessed entries.
+// The referrals array is processed as raw JSON (gjson/sjson) to preserve any unknown fields.
+func (o *OrttoActivitiesMapper) MapFundraiserReferrals(
+	p2pRegistrationID string,
+	profileData FundraiserData,
+) ([]OrttoActivity, *UpdateRaiselyDataRequest, error) {
+
+	referralsField := o.Config.API.Settings.RaiselyFundraiserReferralsField
+	if referralsField == "" {
+		return nil, nil, nil
+	}
+
+	// Read the referrals array as raw JSON from the profile
+	referralsJSON, exists := profileData.Page.Source.StringForPath(referralsField)
+	if !exists || referralsJSON == "" || referralsJSON == "null" {
+		return nil, nil, nil
+	}
+
+	referralsArray := gjson.Parse(referralsJSON)
+	if !referralsArray.IsArray() {
+		log.Printf("Warning: referrals field %q is not a JSON array, skipping", referralsField)
+		return nil, nil, nil
+	}
+
+	// Identify unprocessed entries (no processedAt field)
+	var unprocessedIndices []int
+	referralsArray.ForEach(func(key, value gjson.Result) bool {
+		if !value.Get("processedAt").Exists() || value.Get("processedAt").String() == "" {
+			unprocessedIndices = append(unprocessedIndices, int(key.Int()))
+		}
+		return true
+	})
+
+	if len(unprocessedIndices) == 0 {
+		return nil, nil, nil
+	}
+
+	log.Printf("Referrals sync: found %d unprocessed referral(s)", len(unprocessedIndices))
+
+	// Map each unprocessed entry to an OrttoActivity
+	var activities []OrttoActivity
+	entries := referralsArray.Array()
+	processedAt := time.Now().UTC().Format(time.RFC3339)
+	updatedJSON := referralsJSON
+
+	for _, idx := range unprocessedIndices {
+		entry := entries[idx]
+
+		// Wrap the entry as a Source for field mapping (same pattern as MapTrackingData)
+		source := Source{data: entry}
+
+		activity := OrttoActivity{
+			ActivityID: o.Config.API.Settings.OrttoActivityID,
+			Fields:     make(map[string]interface{}),
+			Attributes: NewOrttoSyncContext(o.SyncContext).AsOrttoActivitiesAttributes(),
+		}
+
+		MapFields(o.Config.FundraiserReferralFieldMappings.Builtin, source, &activity)
+		MapFields(o.Config.FundraiserReferralFieldMappings.Custom, source, &activity)
+
+		o.SeparateFieldsAndAttributesAndSortAttributes(&activity)
+
+		activities = append(activities, activity)
+
+		// Mark as processed in the raw JSON using sjson (preserves unknown fields)
+		var err error
+		updatedJSON, err = sjson.Set(updatedJSON, fmt.Sprintf("%d.processedAt", idx), processedAt)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to set processedAt on referral %d: %w", idx, err)
+		}
+	}
+
+	// Build the Raisely write-back request with the updated array
+	writeBackJSON, err := sjson.SetRaw("", "data."+referralsField, updatedJSON)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to build referrals write-back JSON: %w", err)
+	}
+	writeBack := &UpdateRaiselyDataRequest{
+		P2PID: p2pRegistrationID,
+		JSON:  writeBackJSON,
+	}
+
+	return activities, writeBack, nil
 }
 
 // ActivityDefinitionRequest represents the request to create an Ortto activity definition

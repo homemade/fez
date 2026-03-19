@@ -141,8 +141,8 @@ type OrttoResponse interface {
 // OrttoMapper is the interface for mapping Raisely data to ortto-specific formats.
 // Implementations exist for each integration target (e.g., OrttoContactsMapper, OrttoActivitiesMapper).
 type OrttoMapper interface {
-	MapFundraisingPage(campaign *FundraisingCampaign, p2pRegistrationID string, ctx context.Context) (OrttoRequest, error)
-	MapTeamFundraisingPage(campaign *FundraisingCampaign, p2pTeamID string, ctx context.Context) (OrttoRequest, error)
+	MapFundraisingPage(campaign *FundraisingCampaign, data FundraiserData) (OrttoRequest, error)
+	MapTeamFundraisingPage(campaign *FundraisingCampaign, data TeamData) (OrttoRequest, error)
 	MapTrackingData(campaign *FundraisingCampaign, data map[string]string, ctx context.Context) (OrttoRequest, error)
 	SendRequest(req OrttoRequest, ctx context.Context) (OrttoResponse, error)
 }
