@@ -467,6 +467,9 @@ func (o OrttoActivitiesMapper) BuildActivityDefinitionRequest(activityName strin
 	// Extract attributes from custom team field mappings
 	o.extractFieldMappings(&request.Attributes, o.Config.TeamFieldMappings.Custom, personFieldIDs)
 
+	// Extract attributes from custom fundraiser referral field mappings
+	o.extractFieldMappings(&request.Attributes, o.Config.FundraiserReferralFieldMappings.Custom, personFieldIDs)
+
 	// Merge in any extra custom fields from trackingConfig (not already included)
 	trackingAttributes := []ActivityDefinitionAttribute{}
 	o.extractFieldMappings(&trackingAttributes, trackingConfig.FundraiserFieldMappings.Custom, personFieldIDs)
