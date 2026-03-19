@@ -73,19 +73,19 @@ func (s *Service) requireMapper() error {
 // MapFundraisingProfile fetches a profile, determines whether it belongs
 // to a team or is an individual, and maps it to an Ortto request.
 // FetchCampaign must be called first.
-func (s *Service) MapFundraisingProfile(profileID string, ctx context.Context) (OrttoRequest, error) {
+func (s *Service) MapFundraisingProfile(profileID string, ctx context.Context) (OrttoRequest, *UpdateRaiselyDataRequest, error) {
 	if err := s.requireMapper(); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	fundraisingPage, err := s.fetcher.FetchFundraisingPage(profileID, ctx)
 	if err != nil {
-		return nil, fmt.Errorf("failed to fetch profile %s: %w", profileID, err)
+		return nil, nil, fmt.Errorf("failed to fetch profile %s: %w", profileID, err)
 	}
 
 	fundraisingPageType, ok := fundraisingPage.Source.StringForPath("type")
 	if !ok {
-		return nil, fmt.Errorf("profile %s is missing a type", profileID)
+		return nil, nil, fmt.Errorf("profile %s is missing a type", profileID)
 	}
 
 	profile := FundraisingProfile{
@@ -104,16 +104,23 @@ func (s *Service) MapFundraisingProfile(profileID string, ctx context.Context) (
 	if team != "" {
 		teamData, err := s.fetcher.FetchTeamData(team, ctx)
 		if err != nil {
-			return nil, fmt.Errorf("failed to fetch team data for %s: %w", team, err)
+			return nil, nil, fmt.Errorf("failed to fetch team data for %s: %w", team, err)
 		}
-		return s.mapper.MapTeamFundraisingPage(s.campaign, teamData)
+		req, err := s.mapper.MapTeamFundraisingPage(s.campaign, teamData)
+		return req, nil, err
 	}
 
 	data, err := s.fetcher.FetchFundraiserData(profileID, ctx)
 	if err != nil {
-		return nil, fmt.Errorf("failed to fetch fundraiser data for %s: %w", profileID, err)
+		return nil, nil, fmt.Errorf("failed to fetch fundraiser data for %s: %w", profileID, err)
 	}
-	return s.mapper.MapFundraisingPage(s.campaign, data)
+
+	req, err := s.mapper.MapFundraisingPage(s.campaign, data)
+	if err != nil {
+		return req, nil, err
+	}
+
+	return s.appendReferrals(req, profileID, data)
 }
 
 // MapByWebhookModel maps using model type information already known from
@@ -153,26 +160,31 @@ func (s *Service) MapByWebhookModel(modelType, modelID, parentType, parentID str
 			return req, nil, err
 		}
 
-		// Append referral activities if configured (uses same fetched data — no second API call)
-		if s.sc.Config.API.Settings.RaiselyFundraiserReferralsField != "" {
-			if activitiesMapper, ok := s.mapper.(*OrttoActivitiesMapper); ok {
-				referralActivities, raiselyUpdate, err := activitiesMapper.MapFundraiserReferrals(modelID, data)
-				if err != nil {
-					return req, nil, err
-				}
-				if len(referralActivities) > 0 {
-					if activitiesReq, ok := req.(OrttoActivitiesRequest); ok {
-						activitiesReq.Activities = append(activitiesReq.Activities, referralActivities...)
-						return activitiesReq, raiselyUpdate, nil
-					}
-				}
-			}
-		}
-
-		return req, nil, nil
+		return s.appendReferrals(req, modelID, data)
 	}
 
 	return nil, nil, fmt.Errorf("unsupported model type: %s", modelType)
+}
+
+// appendReferrals appends referral activities to an OrttoRequest if referrals are configured
+// and there are unprocessed entries. Returns the updated request and an optional Raisely
+// write-back request to mark referrals as processed.
+func (s *Service) appendReferrals(req OrttoRequest, profileID string, data FundraiserData) (OrttoRequest, *UpdateRaiselyDataRequest, error) {
+	if s.sc.Config.API.Settings.RaiselyFundraiserReferralsField != "" {
+		if activitiesMapper, ok := s.mapper.(*OrttoActivitiesMapper); ok {
+			referralActivities, raiselyUpdate, err := activitiesMapper.MapFundraiserReferrals(profileID, data)
+			if err != nil {
+				return req, nil, err
+			}
+			if len(referralActivities) > 0 {
+				if activitiesReq, ok := req.(OrttoActivitiesRequest); ok {
+					activitiesReq.Activities = append(activitiesReq.Activities, referralActivities...)
+					return activitiesReq, raiselyUpdate, nil
+				}
+			}
+		}
+	}
+	return req, nil, nil
 }
 
 // MapTrackingData maps tracking key-value pairs to an Ortto request.
