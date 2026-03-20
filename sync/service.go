@@ -12,9 +12,9 @@ import (
 // Usage:
 //
 //	svc := sync.NewService(config, campaignID, trigger, false)
-//	svc.FetchCampaign(false, ctx)                          // required before Map/Send
-//	req, _ := svc.MapFundraisingProfile(profileID, ctx)    // map without sending
-//	svc.SendRequest(req, ctx)                               // send to Ortto
+//	svc.FetchCampaign(false, ctx)                              // required before Map/Send
+//	results, _ := svc.MapFundraisingProfile(profileID, ctx)    // map without sending
+//	for _, r := range results { svc.SendRequest(r.Request, ctx) }  // send to Ortto
 //
 // Operations that do not require FetchCampaign:
 //
@@ -71,21 +71,23 @@ func (s *Service) requireMapper() error {
 // --- Mapping ---
 
 // MapFundraisingProfile fetches a profile, determines whether it belongs
-// to a team or is an individual, and maps it to an Ortto request.
+// to a team or is an individual, and maps it to Ortto request(s).
+// For individual profiles with referrals configured, returns a second
+// MapResult for the referral activities (matched on the referral's email).
 // FetchCampaign must be called first.
-func (s *Service) MapFundraisingProfile(profileID string, ctx context.Context) (OrttoRequest, *UpdateRaiselyDataRequest, error) {
+func (s *Service) MapFundraisingProfile(profileID string, ctx context.Context) ([]MapResult, error) {
 	if err := s.requireMapper(); err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
 	fundraisingPage, err := s.fetcher.FetchFundraisingPage(profileID, ctx)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to fetch profile %s: %w", profileID, err)
+		return nil, fmt.Errorf("failed to fetch profile %s: %w", profileID, err)
 	}
 
 	fundraisingPageType, ok := fundraisingPage.Source.StringForPath("type")
 	if !ok {
-		return nil, nil, fmt.Errorf("profile %s is missing a type", profileID)
+		return nil, fmt.Errorf("profile %s is missing a type", profileID)
 	}
 
 	profile := FundraisingProfile{
@@ -104,35 +106,33 @@ func (s *Service) MapFundraisingProfile(profileID string, ctx context.Context) (
 	if team != "" {
 		teamData, err := s.fetcher.FetchTeamData(team, ctx)
 		if err != nil {
-			return nil, nil, fmt.Errorf("failed to fetch team data for %s: %w", team, err)
+			return nil, fmt.Errorf("failed to fetch team data for %s: %w", team, err)
 		}
 		req, err := s.mapper.MapTeamFundraisingPage(s.campaign, teamData)
-		return req, nil, err
+		if err != nil {
+			return nil, err
+		}
+		return []MapResult{{Request: req}}, nil
 	}
 
 	data, err := s.fetcher.FetchFundraiserData(profileID, ctx)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to fetch fundraiser data for %s: %w", profileID, err)
+		return nil, fmt.Errorf("failed to fetch fundraiser data for %s: %w", profileID, err)
 	}
 
-	req, err := s.mapper.MapFundraisingPage(s.campaign, data)
-	if err != nil {
-		return req, nil, err
-	}
-
-	return s.appendReferrals(req, profileID, data)
+	return s.mapIndividual(profileID, data)
 }
 
 // MapByWebhookModel maps using model type information already known from
 // the webhook payload, avoiding a redundant profile fetch.
-// For INDIVIDUAL profiles with ortto-activities target, also appends any
-// unprocessed referral activities to the request. The returned
-// *UpdateRaiselyDataRequest (if non-nil) should be executed after a
-// successful SendRequest call to mark referrals as processed in Raisely.
+// For INDIVIDUAL profiles with referrals configured, returns a second
+// MapResult for the referral activities (matched on the referral's email).
+// RaiselyUpdate on each MapResult (if non-nil) should be executed after
+// all requests are sent successfully.
 // FetchCampaign must be called first.
-func (s *Service) MapByWebhookModel(modelType, modelID, parentType, parentID string, parentIsCampaignProfile bool, ctx context.Context) (OrttoRequest, *UpdateRaiselyDataRequest, error) {
+func (s *Service) MapByWebhookModel(modelType, modelID, parentType, parentID string, parentIsCampaignProfile bool, ctx context.Context) ([]MapResult, error) {
 	if err := s.requireMapper(); err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
 	if modelType == "GROUP" ||
@@ -143,48 +143,51 @@ func (s *Service) MapByWebhookModel(modelType, modelID, parentType, parentID str
 		}
 		teamData, err := s.fetcher.FetchTeamData(teamID, ctx)
 		if err != nil {
-			return nil, nil, fmt.Errorf("failed to fetch team data: %w", err)
+			return nil, fmt.Errorf("failed to fetch team data: %w", err)
 		}
 		req, err := s.mapper.MapTeamFundraisingPage(s.campaign, teamData)
-		return req, nil, err
+		if err != nil {
+			return nil, err
+		}
+		return []MapResult{{Request: req}}, nil
 	}
 
 	if modelType == "INDIVIDUAL" {
 		data, err := s.fetcher.FetchFundraiserData(modelID, ctx)
 		if err != nil {
-			return nil, nil, fmt.Errorf("failed to fetch fundraiser data: %w", err)
+			return nil, fmt.Errorf("failed to fetch fundraiser data: %w", err)
 		}
 
-		req, err := s.mapper.MapFundraisingPage(s.campaign, data)
-		if err != nil {
-			return req, nil, err
-		}
-
-		return s.appendReferrals(req, modelID, data)
+		return s.mapIndividual(modelID, data)
 	}
 
-	return nil, nil, fmt.Errorf("unsupported model type: %s", modelType)
+	return nil, fmt.Errorf("unsupported model type: %s", modelType)
 }
 
-// appendReferrals appends referral activities to an OrttoRequest if referrals are configured
-// and there are unprocessed entries. Returns the updated request and an optional Raisely
-// write-back request to mark referrals as processed.
-func (s *Service) appendReferrals(req OrttoRequest, profileID string, data FundraiserData) (OrttoRequest, *UpdateRaiselyDataRequest, error) {
+// mapIndividual maps an individual profile to Ortto request(s), including
+// referral activities if configured. Returns one MapResult for the profile
+// and optionally a second for referrals.
+func (s *Service) mapIndividual(profileID string, data FundraiserData) ([]MapResult, error) {
+	req, err := s.mapper.MapFundraisingPage(s.campaign, data)
+	if err != nil {
+		return nil, err
+	}
+
+	results := []MapResult{{Request: req}}
+
 	if s.sc.Config.API.Settings.RaiselyFundraiserReferralsField != "" {
 		if activitiesMapper, ok := s.mapper.(*OrttoActivitiesMapper); ok {
-			referralActivities, raiselyUpdate, err := activitiesMapper.MapFundraiserReferrals(profileID, data)
+			referralResult, err := activitiesMapper.MapFundraiserReferrals(profileID, data)
 			if err != nil {
-				return req, nil, err
+				return results, err
 			}
-			if len(referralActivities) > 0 {
-				if activitiesReq, ok := req.(OrttoActivitiesRequest); ok {
-					activitiesReq.Activities = append(activitiesReq.Activities, referralActivities...)
-					return activitiesReq, raiselyUpdate, nil
-				}
+			if referralResult != nil {
+				results = append(results, *referralResult)
 			}
 		}
 	}
-	return req, nil, nil
+
+	return results, nil
 }
 
 // MapTrackingData maps tracking key-value pairs to an Ortto request.

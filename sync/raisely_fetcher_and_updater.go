@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"slices"
+	"strings"
 	gosync "sync"
 	"time"
 
@@ -37,21 +38,34 @@ type FundraisingPage struct {
 }
 
 type Source struct {
-	data gjson.Result
+	data   gjson.Result
+	parent *Source // optional parent for ^. path traversal
+}
+
+// resolve returns the Source and path to query. Paths prefixed with "^."
+// are resolved against the parent Source (if set), stripping the prefix.
+func (s Source) resolve(path string) (Source, string) {
+	if strings.HasPrefix(path, "^.") && s.parent != nil {
+		return *s.parent, strings.TrimPrefix(path, "^.")
+	}
+	return s, path
 }
 
 func (s Source) StringForPath(path string) (string, bool) {
-	result := s.data.Get(path)
+	src, p := s.resolve(path)
+	result := src.data.Get(p)
 	return result.String(), result.Exists() && (result.Value() != nil)
 }
 
 func (s Source) IntForPath(path string) (int64, bool) {
-	result := s.data.Get(path)
+	src, p := s.resolve(path)
+	result := src.data.Get(p)
 	return result.Int(), result.Exists() && (result.Value() != nil)
 }
 
 func (s Source) BoolForPath(path string) (bool, bool) {
-	result := s.data.Get(path)
+	src, p := s.resolve(path)
+	result := src.data.Get(p)
 	return result.Bool(), result.Exists() && (result.Value() != nil)
 }
 

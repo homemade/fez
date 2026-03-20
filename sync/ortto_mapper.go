@@ -131,6 +131,14 @@ type OrttoRequest interface {
 	AsOrttoActivitiesRequest() (OrttoActivitiesRequest, bool) // Returns (request, true) if activities request, (zero, false) otherwise
 }
 
+// MapResult pairs an Ortto request with an optional Raisely write-back.
+// Service methods return []MapResult — one per logical mapping step
+// (e.g. profile mapping, referrals mapping).
+type MapResult struct {
+	Request       OrttoRequest
+	RaiselyUpdate *UpdateRaiselyDataRequest
+}
+
 // OrttoResponse is the interface for all ortto-specific response types.
 // Each target has its own response type that implements this interface.
 type OrttoResponse interface {

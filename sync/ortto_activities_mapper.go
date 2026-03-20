@@ -285,29 +285,30 @@ func (o *OrttoActivitiesMapper) SendRequest(req OrttoRequest, ctx context.Contex
 
 // MapFundraiserReferrals reads an array of referral entries from the fundraiser profile,
 // maps each unprocessed entry to an OrttoActivity using FundraiserReferralFieldMappings,
-// and returns the activities to send plus a Raisely write-back request that marks them as processed.
-// Returns nil, nil, nil if referrals are not configured or there are no unprocessed entries.
+// and returns a MapResult containing the activities request and a Raisely write-back
+// that marks them as processed. Returns nil if referrals are not configured or there
+// are no unprocessed entries.
 // The referrals array is processed as raw JSON (gjson/sjson) to preserve any unknown fields.
 func (o *OrttoActivitiesMapper) MapFundraiserReferrals(
 	p2pRegistrationID string,
 	profileData FundraiserData,
-) ([]OrttoActivity, *UpdateRaiselyDataRequest, error) {
+) (*MapResult, error) {
 
 	referralsField := o.Config.API.Settings.RaiselyFundraiserReferralsField
 	if referralsField == "" {
-		return nil, nil, nil
+		return nil, nil
 	}
 
 	// Read the referrals array as raw JSON from the profile
 	referralsJSON, exists := profileData.Page.Source.StringForPath(referralsField)
 	if !exists || referralsJSON == "" || referralsJSON == "null" {
-		return nil, nil, nil
+		return nil, nil
 	}
 
 	referralsArray := gjson.Parse(referralsJSON)
 	if !referralsArray.IsArray() {
 		log.Printf("Warning: referrals field %q is not a JSON array, skipping", referralsField)
-		return nil, nil, nil
+		return nil, nil
 	}
 
 	// Identify unprocessed entries (no processedAt field)
@@ -320,7 +321,7 @@ func (o *OrttoActivitiesMapper) MapFundraiserReferrals(
 	})
 
 	if len(unprocessedIndices) == 0 {
-		return nil, nil, nil
+		return nil, nil
 	}
 
 	log.Printf("Referrals sync: found %d unprocessed referral(s)", len(unprocessedIndices))
@@ -335,7 +336,8 @@ func (o *OrttoActivitiesMapper) MapFundraiserReferrals(
 		entry := entries[idx]
 
 		// Wrap the entry as a Source for field mapping (same pattern as MapTrackingData)
-		source := Source{data: entry}
+		// Set the profile as parent so ^. paths resolve against the fundraiser profile
+		source := Source{data: entry, parent: &profileData.Page.Source}
 
 		activity := OrttoActivity{
 			ActivityID: o.Config.API.Settings.OrttoActivityID,
@@ -348,27 +350,41 @@ func (o *OrttoActivitiesMapper) MapFundraiserReferrals(
 
 		o.SeparateFieldsAndAttributesAndSortAttributes(&activity)
 
-		activities = append(activities, activity)
+		// Skip referrals without an email — the request uses MergeBy str::email
+		// so there's nothing to match on. Still mark as processed to avoid retrying.
+		email, hasEmail := activity.Fields["str::email"]
+		if !hasEmail || email == nil || email == "" {
+			log.Printf("Warning: referral %d has no email, skipping Ortto activity (will still mark as processed)", idx)
+		} else {
+			activities = append(activities, activity)
+		}
 
 		// Mark as processed in the raw JSON using sjson (preserves unknown fields)
 		var err error
 		updatedJSON, err = sjson.Set(updatedJSON, fmt.Sprintf("%d.processedAt", idx), processedAt)
 		if err != nil {
-			return nil, nil, fmt.Errorf("failed to set processedAt on referral %d: %w", idx, err)
+			return nil, fmt.Errorf("failed to set processedAt on referral %d: %w", idx, err)
 		}
 	}
 
 	// Build the Raisely write-back request with the updated array
 	writeBackJSON, err := sjson.SetRaw("", "data."+referralsField, updatedJSON)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to build referrals write-back JSON: %w", err)
-	}
-	writeBack := &UpdateRaiselyDataRequest{
-		P2PID: p2pRegistrationID,
-		JSON:  writeBackJSON,
+		return nil, fmt.Errorf("failed to build referrals write-back JSON: %w", err)
 	}
 
-	return activities, writeBack, nil
+	return &MapResult{
+		Request: OrttoActivitiesRequest{
+			Activities:    activities,
+			Async:         false,
+			MergeBy:       []string{"str::email"},
+			MergeStrategy: 2, // Overwrite existing
+		},
+		RaiselyUpdate: &UpdateRaiselyDataRequest{
+			P2PID: p2pRegistrationID,
+			JSON:  writeBackJSON,
+		},
+	}, nil
 }
 
 // ActivityDefinitionRequest represents the request to create an Ortto activity definition
