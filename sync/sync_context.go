@@ -17,6 +17,7 @@ type SyncContext struct {
 	Config         Config
 	Campaign       string
 	RecordRequests bool
+	Debug          bool
 
 	TriggerInfo
 	CampaignName string

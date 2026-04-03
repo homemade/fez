@@ -2,7 +2,9 @@ package sync
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"log"
 	"strings"
 )
 
@@ -11,7 +13,7 @@ import (
 //
 // Usage:
 //
-//	svc := sync.NewService(config, campaignID, trigger, false)
+//	svc := sync.NewService(config, campaignID, trigger)
 //	svc.FetchCampaign(false, ctx)                              // required before Map/Send
 //	results, _ := svc.MapFundraisingProfile(profileID, ctx)    // map without sending
 //	for _, r := range results { svc.SendRequest(r.Request, ctx) }  // send to Ortto
@@ -32,12 +34,40 @@ type Service struct {
 	mapper   OrttoMapper
 }
 
+// serviceOptions holds optional configuration for NewService.
+type serviceOptions struct {
+	recordRequests bool
+	debug          bool
+}
+
+// ServiceOption is a functional option for configuring NewService.
+type ServiceOption func(*serviceOptions)
+
+// ServiceWithRecordRequests enables request recording to disk.
+func ServiceWithRecordRequests() ServiceOption {
+	return func(o *serviceOptions) {
+		o.recordRequests = true
+	}
+}
+
+// ServiceWithDebug enables debug output.
+func ServiceWithDebug() ServiceOption {
+	return func(o *serviceOptions) {
+		o.debug = true
+	}
+}
+
 // NewService creates a Service for the given campaign configuration.
-func NewService(config Config, campaignID string, trigger TriggerInfo, recordRequests bool) *Service {
+func NewService(config Config, campaignID string, trigger TriggerInfo, opts ...ServiceOption) *Service {
+	var o serviceOptions
+	for _, opt := range opts {
+		opt(&o)
+	}
 	sc := &SyncContext{
 		Config:         config,
 		Campaign:       campaignID,
-		RecordRequests: recordRequests,
+		RecordRequests: o.recordRequests,
+		Debug:          o.debug,
 		TriggerInfo:    trigger,
 	}
 	return &Service{
@@ -83,6 +113,11 @@ func (s *Service) MapFundraisingProfile(profileID string, ctx context.Context) (
 	fundraisingPage, err := s.fetcher.FetchFundraisingPage(profileID, ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch profile %s: %w", profileID, err)
+	}
+
+	if s.sc.Debug {
+		profileData, _ := json.MarshalIndent(fundraisingPage.Source.Data(), "", "  ")
+		log.Printf("Debug: Fetched profile %s %s\n", profileID, string(profileData))
 	}
 
 	fundraisingPageType, ok := fundraisingPage.Source.StringForPath("type")
