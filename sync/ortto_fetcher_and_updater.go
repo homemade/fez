@@ -409,8 +409,10 @@ type CSVEnrichmentResult struct {
 
 // EnrichCSVRows concurrently enriches rows with Ortto activity feed data using a
 // worker pool pattern (fixed goroutines pulling from a shared channel).
+// activityAttributes limits output to attributes present in the current activity definition;
+// pass nil to include all attributes.
 // Returns per-row results and the union of all attribute keys found.
-func (o OrttoFetcherAndUpdater) EnrichCSVRows(rows []CSVEnrichmentRow, activityID string, ctx context.Context) ([]CSVEnrichmentResult, []string) {
+func (o OrttoFetcherAndUpdater) EnrichCSVRows(rows []CSVEnrichmentRow, activityID string, activityAttributes map[string]bool, ctx context.Context) ([]CSVEnrichmentResult, []string) {
 	results := make([]CSVEnrichmentResult, len(rows))
 	errs := make([]error, len(rows))
 
@@ -426,7 +428,7 @@ func (o OrttoFetcherAndUpdater) EnrichCSVRows(rows []CSVEnrichmentRow, activityI
 		go func() {
 			defer wg.Done()
 			for i := range work {
-				results[i] = o.enrichRow(rows[i], activityID, ctx)
+				results[i] = o.enrichRow(rows[i], activityID, activityAttributes, ctx)
 				errs[i] = results[i].Err
 			}
 		}()
@@ -452,7 +454,7 @@ func (o OrttoFetcherAndUpdater) EnrichCSVRows(rows []CSVEnrichmentRow, activityI
 	return results, keys
 }
 
-func (o OrttoFetcherAndUpdater) enrichRow(row CSVEnrichmentRow, activityID string, ctx context.Context) CSVEnrichmentResult {
+func (o OrttoFetcherAndUpdater) enrichRow(row CSVEnrichmentRow, activityID string, activityAttributes map[string]bool, ctx context.Context) CSVEnrichmentResult {
 	result := CSVEnrichmentResult{Attributes: make(map[string]string)}
 
 	if row.ContactFieldValue == "" {
@@ -477,11 +479,11 @@ func (o OrttoFetcherAndUpdater) enrichRow(row CSVEnrichmentRow, activityID strin
 	// Use the latest activity (first entry)
 	latest := activities[0]
 	for k, v := range latest.Attributes {
-		// Filter out object-type attributes
-		if strings.HasPrefix(k, "obj:") {
+		name := ExtractAttributeName(k)
+		// Filter to attributes in the current activity definition
+		if activityAttributes != nil && !activityAttributes[name] {
 			continue
 		}
-		name := ExtractAttributeName(k)
 		result.Attributes[name] = fmt.Sprintf("%v", v)
 	}
 
