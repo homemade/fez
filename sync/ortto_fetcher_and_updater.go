@@ -484,6 +484,13 @@ func (o OrttoFetcherAndUpdater) enrichRow(row CSVEnrichmentRow, activityID strin
 		if activityAttributes != nil && !activityAttributes[name] {
 			continue
 		}
+		// Flatten object-type attributes into <name>.<child-key> columns
+		if nested, ok := v.(map[string]interface{}); ok {
+			for childKey, childValue := range nested {
+				result.Attributes[name+"."+ExtractAttributeName(childKey)] = fmt.Sprintf("%v", childValue)
+			}
+			continue
+		}
 		result.Attributes[name] = fmt.Sprintf("%v", v)
 	}
 
