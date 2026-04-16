@@ -1,8 +1,11 @@
 package sync
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"path"
+	"sort"
 	"strings"
 
 	"gopkg.in/yaml.v2"
@@ -93,4 +96,46 @@ func LoadCSVEnrichmentMapping(mappings EmbeddedMappings, mappingPath string, pur
 	}
 
 	return result, nil
+}
+
+// ListCSVEnrichmentPurposes returns the available enrichment purposes for a campaign
+// by scanning the embedded mappings directory for files of the form
+// "<mappingPath>.<purpose>.ortto-activities.yaml".
+// Returns an empty slice (and no error) if the org directory has no matching files.
+func ListCSVEnrichmentPurposes(mappings EmbeddedMappings, mappingPath string) ([]string, error) {
+	index := strings.LastIndex(mappingPath, "/")
+	if index == -1 {
+		return nil, fmt.Errorf("invalid mapping path %q: must contain org directory (e.g. ORG/LABEL)", mappingPath)
+	}
+	dir := path.Join(mappings.Root, mappingPath[:index])
+	label := mappingPath[index+1:]
+
+	entries, err := mappings.Files.ReadDir(dir)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return []string{}, nil
+		}
+		return nil, err
+	}
+
+	const suffix = ".ortto-activities.yaml"
+	prefix := label + "."
+
+	var purposes []string
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		name := e.Name()
+		if !strings.HasPrefix(name, prefix) || !strings.HasSuffix(name, suffix) {
+			continue
+		}
+		purpose := strings.TrimSuffix(strings.TrimPrefix(name, prefix), suffix)
+		if purpose == "" {
+			continue
+		}
+		purposes = append(purposes, purpose)
+	}
+	sort.Strings(purposes)
+	return purposes, nil
 }
