@@ -9,12 +9,31 @@ import (
 	"net/http"
 	"strings"
 	gosync "sync"
+	"time"
 
 	"github.com/carlmjohnson/requests"
 	"github.com/iancoleman/strcase"
 )
 
 const ActivityFeedConcurrencyLimit = 5
+
+// ActivityFeedFirstMatchPageSize is the Ortto maximum page size for /v1/person/get/activities.
+const ActivityFeedFirstMatchPageSize = 40
+
+// ActivityFeedFirstMatchPageDelay is the pause between paginated requests for a single contact,
+// to stay within Ortto's documented 1 request/second rate limit.
+const ActivityFeedFirstMatchPageDelay = time.Second
+
+// ActivityFeedMode controls how GetActivityFeedForContact fetches activities.
+type ActivityFeedMode int
+
+const (
+	// ActivityFeedLatest fetches only the most recent activity (limit: 1, offset: 0).
+	ActivityFeedLatest ActivityFeedMode = iota
+	// ActivityFeedFirstMatch paginates through the activity feed so the caller can pick
+	// the first entry matching a predicate. Pagination stops when meta.has_more is false.
+	ActivityFeedFirstMatch
+)
 
 // OrttoFetcherAndUpdater handles all Ortto API operations.
 // It embeds *SyncContext for shared sync configuration.
@@ -225,12 +244,20 @@ func (o OrttoFetcherAndUpdater) CreateCustomPersonField(name, fieldType string, 
 // GetActivityFeedForContact retrieves the activity feed for a contact from the Ortto API.
 // It filters by the specified activity ID and returns the activities.
 // The contact is identified by the provided field ID and value.
+//
+// When mode is ActivityFeedLatest, only the most recent activity is fetched (limit: 1).
+// When mode is ActivityFeedFirstMatch, the feed is paginated with the API's max page size
+// (ActivityFeedFirstMatchPageSize) until meta.has_more is false; results are returned in feed
+// order (most recent first). A short delay is applied between paginated requests to stay
+// within Ortto's 1 request/second rate limit.
+//
 // Note: contactFieldValue is a string because fields used for contact
 // identification have always been string-type fields (str:cm:... or str::email).
 func (o OrttoFetcherAndUpdater) GetActivityFeedForContact(
 	contactFieldID string,
 	contactFieldValue string,
 	activityID string,
+	mode ActivityFeedMode,
 	ctx context.Context,
 ) ([]OrttoActivityFeedEntry, error) {
 	// Step 1: Look up the contact to get their person_id
@@ -282,9 +309,53 @@ func (o OrttoFetcherAndUpdater) GetActivityFeedForContact(
 	personID := contactResponse.Contacts[0].ID
 
 	// Step 2: Retrieve the activity feed for the contact
+	if mode == ActivityFeedLatest {
+		resp, err := o.fetchActivityFeedPage(personID, activityID, 1, 0, ctx)
+		if err != nil {
+			return nil, err
+		}
+		return resp.Activities, nil
+	}
+
+	// ActivityFeedFirstMatch: paginate until meta.has_more is false.
+	var activities []OrttoActivityFeedEntry
+	offset := 0
+	for page := 0; ; page++ {
+		if page > 0 {
+			select {
+			case <-ctx.Done():
+				return activities, ctx.Err()
+			case <-time.After(ActivityFeedFirstMatchPageDelay):
+			}
+		}
+		resp, err := o.fetchActivityFeedPage(personID, activityID, ActivityFeedFirstMatchPageSize, offset, ctx)
+		if err != nil {
+			return activities, err
+		}
+		activities = append(activities, resp.Activities...)
+		if !resp.Meta.HasMore {
+			break
+		}
+		if resp.NextOffset <= offset {
+			// Defensive: avoid infinite loop if the API returns a stale offset.
+			break
+		}
+		offset = resp.NextOffset
+	}
+	return activities, nil
+}
+
+// fetchActivityFeedPage retrieves a single page of the activity feed for a contact.
+func (o OrttoFetcherAndUpdater) fetchActivityFeedPage(
+	personID string,
+	activityID string,
+	limit int,
+	offset int,
+	ctx context.Context,
+) (OrttoActivityFeedResponse, error) {
 	var feedResponse OrttoActivityFeedResponse
 
-	err = o.OrttoAPIBuilder().
+	err := o.OrttoAPIBuilder().
 		Path("/v1/person/get/activities").
 		Header("X-Api-Key", o.Config.API.Keys.Ortto).
 		Post().
@@ -292,17 +363,17 @@ func (o OrttoFetcherAndUpdater) GetActivityFeedForContact(
 		{
 			"person_id": "%s",
 			"activities": ["%s"],
-			"limit": 1
+			"limit": %d,
+			"offset": %d
 		}
-		`, personID, activityID))).
+		`, personID, activityID, limit, offset))).
 		ToJSON(&feedResponse).
 		ErrorJSON(&feedResponse.Error).
 		Fetch(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get activity feed for contact %s: %w", personID, err)
+		return feedResponse, fmt.Errorf("failed to get activity feed for contact %s (offset %d): %w", personID, offset, err)
 	}
-
-	return feedResponse.Activities, nil
+	return feedResponse, nil
 }
 
 // OrttoFieldDisplayLabel converts an Ortto field ID to its display label.
@@ -409,10 +480,13 @@ type CSVEnrichmentResult struct {
 
 // EnrichCSVRows concurrently enriches rows with Ortto activity feed data using a
 // worker pool pattern (fixed goroutines pulling from a shared channel).
-// activityAttributes limits output to attributes present in the current activity definition;
-// pass nil to include all attributes.
+// The mapping drives which attributes are included (AttributeSet), how the activity
+// feed is fetched (Mode: latest vs all), and which activity is used when Mode is
+// ActivityFeedFirstMatch (Pick: first matching predicate).
 // Returns per-row results and the union of all attribute keys found.
-func (o OrttoFetcherAndUpdater) EnrichCSVRows(rows []CSVEnrichmentRow, activityID string, activityAttributes map[string]bool, ctx context.Context) ([]CSVEnrichmentResult, []string) {
+func (o OrttoFetcherAndUpdater) EnrichCSVRows(rows []CSVEnrichmentRow, activityID string, mapping CSVEnrichmentMapping, ctx context.Context) ([]CSVEnrichmentResult, []string) {
+	activityAttributes := mapping.AttributeSet()
+
 	results := make([]CSVEnrichmentResult, len(rows))
 	errs := make([]error, len(rows))
 
@@ -428,7 +502,7 @@ func (o OrttoFetcherAndUpdater) EnrichCSVRows(rows []CSVEnrichmentRow, activityI
 		go func() {
 			defer wg.Done()
 			for i := range work {
-				results[i] = o.enrichRow(rows[i], activityID, activityAttributes, ctx)
+				results[i] = o.enrichRow(rows[i], activityID, activityAttributes, mapping.Mode, mapping.Pick, ctx)
 				errs[i] = results[i].Err
 			}
 		}()
@@ -454,7 +528,7 @@ func (o OrttoFetcherAndUpdater) EnrichCSVRows(rows []CSVEnrichmentRow, activityI
 	return results, keys
 }
 
-func (o OrttoFetcherAndUpdater) enrichRow(row CSVEnrichmentRow, activityID string, activityAttributes map[string]bool, ctx context.Context) CSVEnrichmentResult {
+func (o OrttoFetcherAndUpdater) enrichRow(row CSVEnrichmentRow, activityID string, activityAttributes map[string]bool, mode ActivityFeedMode, pick *CSVEnrichmentPick, ctx context.Context) CSVEnrichmentResult {
 	result := CSVEnrichmentResult{Attributes: make(map[string]string)}
 
 	if row.ContactFieldValue == "" {
@@ -465,6 +539,7 @@ func (o OrttoFetcherAndUpdater) enrichRow(row CSVEnrichmentRow, activityID strin
 		row.ContactFieldID,
 		row.ContactFieldValue,
 		activityID,
+		mode,
 		ctx,
 	)
 	if err != nil {
@@ -476,9 +551,13 @@ func (o OrttoFetcherAndUpdater) enrichRow(row CSVEnrichmentRow, activityID strin
 		return result
 	}
 
-	// Use the latest activity (first entry)
-	latest := activities[0]
-	for k, v := range latest.Attributes {
+	// Select which activity to use for enrichment.
+	selected := selectActivity(activities, mode, pick)
+	if selected == nil {
+		return result
+	}
+
+	for k, v := range selected.Attributes {
 		name := ExtractAttributeName(k)
 		// Filter to attributes in the current activity definition
 		if activityAttributes != nil && !activityAttributes[name] {
@@ -501,6 +580,39 @@ func (o OrttoFetcherAndUpdater) enrichRow(row CSVEnrichmentRow, activityID strin
 	}
 
 	return result
+}
+
+// selectActivity chooses a single activity from the feed to use for enrichment.
+// For ActivityFeedLatest (or ActivityFeedFirstMatch without a pick) the most recent
+// entry is returned. For ActivityFeedFirstMatch with a pick, the feed is walked from
+// the start of the stream (oldest first) and the first entry whose matching attribute
+// equals pick.Equals is returned; nil if none match.
+//
+// Note: the Ortto API returns activities most-recent-first, so "oldest first" means
+// iterating activities in reverse.
+func selectActivity(activities []OrttoActivityFeedEntry, mode ActivityFeedMode, pick *CSVEnrichmentPick) *OrttoActivityFeedEntry {
+	if len(activities) == 0 {
+		return nil
+	}
+	if mode != ActivityFeedFirstMatch || pick == nil {
+		return &activities[0]
+	}
+
+	want := fmt.Sprintf("%v", pick.Equals)
+	for i := len(activities) - 1; i >= 0; i-- {
+		for k, v := range activities[i].Attributes {
+			if ExtractAttributeName(k) != pick.Attribute {
+				continue
+			}
+			if v == nil {
+				continue
+			}
+			if fmt.Sprintf("%v", v) == want {
+				return &activities[i]
+			}
+		}
+	}
+	return nil
 }
 
 // ExtractAttributeName returns the name portion of an Ortto field key.

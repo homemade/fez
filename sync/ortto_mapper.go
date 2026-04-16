@@ -313,6 +313,11 @@ type OrttoActivityFeedEntry struct {
 // OrttoActivityFeedResponse is the response from the activity feed API.
 type OrttoActivityFeedResponse struct {
 	Activities []OrttoActivityFeedEntry `json:"activities"`
+	Meta       struct {
+		HasMore         bool `json:"has_more"`
+		TotalActivities int  `json:"total_activities"`
+	} `json:"meta"`
+	NextOffset int `json:"next_offset"`
 	Error      OrttoError
 }
 

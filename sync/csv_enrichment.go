@@ -17,9 +17,21 @@ type CSVEnrichmentColumn struct {
 	Attribute string
 }
 
+// CSVEnrichmentPick selects a specific activity from a contact's feed when
+// CSVEnrichmentMapping.Mode is ActivityFeedFirstMatch. The feed is walked from the
+// start of the stream (oldest first) and the first activity whose Attribute equals
+// Equals is used. Comparisons are made on the stringified value, so YAML booleans
+// and numbers match their JSON counterparts.
+type CSVEnrichmentPick struct {
+	Attribute string
+	Equals    interface{}
+}
+
 // CSVEnrichmentMapping represents the parsed contents of a CSV enrichment mapping YAML file.
 // Column order is preserved from the YAML file.
 type CSVEnrichmentMapping struct {
+	Mode    ActivityFeedMode
+	Pick    *CSVEnrichmentPick
 	Columns []CSVEnrichmentColumn
 }
 
@@ -62,6 +74,11 @@ func (f CSVEnrichmentMapping) OrderedAttributes() []string {
 // embedded mappings. The file is located at
 // "<mappings.Root>/<mappingPath>.<purpose>.ortto-activities.yaml".
 // Key order within the "columns" section is preserved.
+//
+// Top-level keys:
+//   - mode: "latest" (default) or "first-match"
+//   - pick: { attribute: <name>, equals: <value> } — required when mode is "first-match"
+//   - columns: ordered header → attribute map
 func LoadCSVEnrichmentMapping(mappings EmbeddedMappings, mappingPath string, purpose string) (CSVEnrichmentMapping, error) {
 	filename := mappingPath + "." + purpose + ".ortto-activities.yaml"
 	fullpath := path.Join(mappings.Root, filename)
@@ -75,24 +92,61 @@ func LoadCSVEnrichmentMapping(mappings EmbeddedMappings, mappingPath string, pur
 		return CSVEnrichmentMapping{}, fmt.Errorf("failed to parse CSV enrichment mapping %s: %w", fullpath, err)
 	}
 
-	var result CSVEnrichmentMapping
+	result := CSVEnrichmentMapping{Mode: ActivityFeedLatest}
 	for _, section := range top {
 		key, _ := section.Key.(string)
-		if key != "columns" {
-			continue
+		switch key {
+		case "mode":
+			modeStr, ok := section.Value.(string)
+			if !ok {
+				return CSVEnrichmentMapping{}, fmt.Errorf("failed to parse CSV enrichment mapping %s: \"mode\" must be a string", fullpath)
+			}
+			switch modeStr {
+			case "", "latest":
+				result.Mode = ActivityFeedLatest
+			case "first-match":
+				result.Mode = ActivityFeedFirstMatch
+			default:
+				return CSVEnrichmentMapping{}, fmt.Errorf("failed to parse CSV enrichment mapping %s: unknown mode %q (expected \"latest\" or \"first-match\")", fullpath, modeStr)
+			}
+		case "pick":
+			pickMap, ok := section.Value.(yaml.MapSlice)
+			if !ok {
+				return CSVEnrichmentMapping{}, fmt.Errorf("failed to parse CSV enrichment mapping %s: \"pick\" must be a mapping", fullpath)
+			}
+			pick := &CSVEnrichmentPick{}
+			for _, item := range pickMap {
+				k, _ := item.Key.(string)
+				switch k {
+				case "attribute":
+					s, _ := item.Value.(string)
+					pick.Attribute = s
+				case "equals":
+					pick.Equals = item.Value
+				}
+			}
+			if pick.Attribute == "" {
+				return CSVEnrichmentMapping{}, fmt.Errorf("failed to parse CSV enrichment mapping %s: \"pick.attribute\" is required", fullpath)
+			}
+			result.Pick = pick
+		case "columns":
+			columns, ok := section.Value.(yaml.MapSlice)
+			if !ok {
+				return CSVEnrichmentMapping{}, fmt.Errorf("failed to parse CSV enrichment mapping %s: \"columns\" must be a mapping", fullpath)
+			}
+			for _, item := range columns {
+				header, _ := item.Key.(string)
+				attribute, _ := item.Value.(string)
+				result.Columns = append(result.Columns, CSVEnrichmentColumn{
+					Header:    header,
+					Attribute: attribute,
+				})
+			}
 		}
-		columns, ok := section.Value.(yaml.MapSlice)
-		if !ok {
-			return CSVEnrichmentMapping{}, fmt.Errorf("failed to parse CSV enrichment mapping %s: \"columns\" must be a mapping", fullpath)
-		}
-		for _, item := range columns {
-			header, _ := item.Key.(string)
-			attribute, _ := item.Value.(string)
-			result.Columns = append(result.Columns, CSVEnrichmentColumn{
-				Header:    header,
-				Attribute: attribute,
-			})
-		}
+	}
+
+	if result.Mode == ActivityFeedFirstMatch && result.Pick == nil {
+		return CSVEnrichmentMapping{}, fmt.Errorf("failed to parse CSV enrichment mapping %s: \"pick\" is required when mode is \"first-match\"", fullpath)
 	}
 
 	return result, nil
