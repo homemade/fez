@@ -11,6 +11,7 @@ require (
 	github.com/tidwall/sjson v1.2.5
 	github.com/ttacon/libphonenumber v1.2.1
 	go.uber.org/config v1.4.0
+	gopkg.in/yaml.v2 v2.4.0
 )
 
 require (
@@ -26,5 +27,4 @@ require (
 	golang.org/x/text v0.30.0 // indirect
 	golang.org/x/tools v0.38.0 // indirect
 	google.golang.org/protobuf v1.36.8 // indirect
-	gopkg.in/yaml.v2 v2.4.0 // indirect
 )
