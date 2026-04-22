@@ -18,9 +18,10 @@ type CSVEnrichmentColumn struct {
 }
 
 // CSVEnrichmentPick selects a specific activity from a contact's feed when
-// CSVEnrichmentMapping.Mode is ActivityFeedFirstMatch. The feed is walked from the
-// start of the stream (oldest first) and the first activity whose Attribute equals
-// Equals is used. Comparisons are made on the stringified value, so YAML booleans
+// CSVEnrichmentMapping.Mode is ActivityFeedFirstMatch or ActivityFeedLatestMatch.
+// For ActivityFeedFirstMatch the feed is walked oldest-first; for ActivityFeedLatestMatch
+// the feed is walked newest-first (natural API order). The first activity whose Attribute
+// equals Equals is used. Comparisons are made on the stringified value, so YAML booleans
 // and numbers match their JSON counterparts.
 type CSVEnrichmentPick struct {
 	Attribute string
@@ -76,8 +77,9 @@ func (f CSVEnrichmentMapping) OrderedAttributes() []string {
 // Key order within the "columns" section is preserved.
 //
 // Top-level keys:
-//   - mode: "latest" (default) or "first-match"
+//   - mode: "latest" (default), "first-match", or "latest-match"
 //   - pick: { attribute: <name>, equals: <value> } — required when mode is "first-match"
+//     or "latest-match"
 //   - columns: ordered header → attribute map
 func LoadCSVEnrichmentMapping(mappings EmbeddedMappings, mappingPath string, purpose string) (CSVEnrichmentMapping, error) {
 	filename := mappingPath + "." + purpose + ".ortto-activities.yaml"
@@ -106,8 +108,10 @@ func LoadCSVEnrichmentMapping(mappings EmbeddedMappings, mappingPath string, pur
 				result.Mode = ActivityFeedLatest
 			case "first-match":
 				result.Mode = ActivityFeedFirstMatch
+			case "latest-match":
+				result.Mode = ActivityFeedLatestMatch
 			default:
-				return CSVEnrichmentMapping{}, fmt.Errorf("failed to parse CSV enrichment mapping %s: unknown mode %q (expected \"latest\" or \"first-match\")", fullpath, modeStr)
+				return CSVEnrichmentMapping{}, fmt.Errorf("failed to parse CSV enrichment mapping %s: unknown mode %q (expected \"latest\", \"first-match\", or \"latest-match\")", fullpath, modeStr)
 			}
 		case "pick":
 			pickMap, ok := section.Value.(yaml.MapSlice)
@@ -145,8 +149,12 @@ func LoadCSVEnrichmentMapping(mappings EmbeddedMappings, mappingPath string, pur
 		}
 	}
 
-	if result.Mode == ActivityFeedFirstMatch && result.Pick == nil {
-		return CSVEnrichmentMapping{}, fmt.Errorf("failed to parse CSV enrichment mapping %s: \"pick\" is required when mode is \"first-match\"", fullpath)
+	if (result.Mode == ActivityFeedFirstMatch || result.Mode == ActivityFeedLatestMatch) && result.Pick == nil {
+		modeName := "first-match"
+		if result.Mode == ActivityFeedLatestMatch {
+			modeName = "latest-match"
+		}
+		return CSVEnrichmentMapping{}, fmt.Errorf("failed to parse CSV enrichment mapping %s: \"pick\" is required when mode is %q", fullpath, modeName)
 	}
 
 	return result, nil

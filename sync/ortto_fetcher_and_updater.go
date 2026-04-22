@@ -33,6 +33,11 @@ const (
 	// ActivityFeedFirstMatch paginates through the activity feed so the caller can pick
 	// the first entry matching a predicate. Pagination stops when meta.has_more is false.
 	ActivityFeedFirstMatch
+	// ActivityFeedLatestMatch paginates newest-first (the API's natural order) and stops
+	// as soon as any entry on the current page satisfies the match predicate passed to
+	// GetActivityFeedForContact. The first matching entry walking from most-recent is
+	// the most recent match, so there is no need to fetch older pages.
+	ActivityFeedLatestMatch
 )
 
 // OrttoFetcherAndUpdater handles all Ortto API operations.
@@ -250,6 +255,13 @@ func (o OrttoFetcherAndUpdater) CreateCustomPersonField(name, fieldType string, 
 // (ActivityFeedFirstMatchPageSize) until meta.has_more is false; results are returned in feed
 // order (most recent first). A short delay is applied between paginated requests to stay
 // within Ortto's 1 request/second rate limit.
+// When mode is ActivityFeedLatestMatch, the feed is paginated the same way but pagination
+// short-circuits as soon as any entry on the current page satisfies match. Because the API
+// returns entries newest-first, the first page that contains a match has the most recent
+// match — older pages are not fetched.
+//
+// The match parameter is only consulted when mode is ActivityFeedLatestMatch; callers should
+// pass nil for the other modes.
 //
 // Note: contactFieldValue is a string because fields used for contact
 // identification have always been string-type fields (str:cm:... or str::email).
@@ -258,6 +270,7 @@ func (o OrttoFetcherAndUpdater) GetActivityFeedForContact(
 	contactFieldValue string,
 	activityID string,
 	mode ActivityFeedMode,
+	match func(OrttoActivityFeedEntry) bool,
 	ctx context.Context,
 ) ([]OrttoActivityFeedEntry, error) {
 	// Step 1: Look up the contact to get their person_id
@@ -317,7 +330,8 @@ func (o OrttoFetcherAndUpdater) GetActivityFeedForContact(
 		return resp.Activities, nil
 	}
 
-	// ActivityFeedFirstMatch: paginate until meta.has_more is false.
+	// Paginate until meta.has_more is false (or, for LatestMatch, until the current
+	// page contains a match).
 	var activities []OrttoActivityFeedEntry
 	offset := 0
 	for page := 0; ; page++ {
@@ -333,6 +347,13 @@ func (o OrttoFetcherAndUpdater) GetActivityFeedForContact(
 			return activities, err
 		}
 		activities = append(activities, resp.Activities...)
+		if mode == ActivityFeedLatestMatch && match != nil {
+			for _, entry := range resp.Activities {
+				if match(entry) {
+					return activities, nil
+				}
+			}
+		}
 		if !resp.Meta.HasMore {
 			break
 		}
@@ -535,11 +556,17 @@ func (o OrttoFetcherAndUpdater) enrichRow(row CSVEnrichmentRow, activityID strin
 		return result
 	}
 
+	var match func(OrttoActivityFeedEntry) bool
+	if mode == ActivityFeedLatestMatch && pick != nil {
+		match = pickPredicate(*pick)
+	}
+
 	activities, err := o.GetActivityFeedForContact(
 		row.ContactFieldID,
 		row.ContactFieldValue,
 		activityID,
 		mode,
+		match,
 		ctx,
 	)
 	if err != nil {
@@ -583,10 +610,12 @@ func (o OrttoFetcherAndUpdater) enrichRow(row CSVEnrichmentRow, activityID strin
 }
 
 // selectActivity chooses a single activity from the feed to use for enrichment.
-// For ActivityFeedLatest (or ActivityFeedFirstMatch without a pick) the most recent
-// entry is returned. For ActivityFeedFirstMatch with a pick, the feed is walked from
-// the start of the stream (oldest first) and the first entry whose matching attribute
-// equals pick.Equals is returned; nil if none match.
+//   - ActivityFeedLatest (or any mode without a pick) returns the most recent entry.
+//   - ActivityFeedFirstMatch with a pick walks the feed oldest-first and returns the
+//     first entry whose matching attribute equals pick.Equals; nil if none match.
+//   - ActivityFeedLatestMatch with a pick walks the feed newest-first (natural API
+//     order) and returns the first entry whose matching attribute equals pick.Equals;
+//     nil if none match.
 //
 // Note: the Ortto API returns activities most-recent-first, so "oldest first" means
 // iterating activities in reverse.
@@ -594,13 +623,35 @@ func selectActivity(activities []OrttoActivityFeedEntry, mode ActivityFeedMode, 
 	if len(activities) == 0 {
 		return nil
 	}
-	if mode != ActivityFeedFirstMatch || pick == nil {
+	if pick == nil || (mode != ActivityFeedFirstMatch && mode != ActivityFeedLatestMatch) {
 		return &activities[0]
 	}
 
-	want := fmt.Sprintf("%v", pick.Equals)
+	match := pickPredicate(*pick)
+	if mode == ActivityFeedLatestMatch {
+		for i := range activities {
+			if match(activities[i]) {
+				return &activities[i]
+			}
+		}
+		return nil
+	}
+	// ActivityFeedFirstMatch: oldest-first.
 	for i := len(activities) - 1; i >= 0; i-- {
-		for k, v := range activities[i].Attributes {
+		if match(activities[i]) {
+			return &activities[i]
+		}
+	}
+	return nil
+}
+
+// pickPredicate returns a closure that reports whether an activity feed entry
+// satisfies the given pick. Comparisons are performed on the stringified attribute
+// value so YAML booleans and numbers match their JSON counterparts.
+func pickPredicate(pick CSVEnrichmentPick) func(OrttoActivityFeedEntry) bool {
+	want := fmt.Sprintf("%v", pick.Equals)
+	return func(entry OrttoActivityFeedEntry) bool {
+		for k, v := range entry.Attributes {
 			if ExtractAttributeName(k) != pick.Attribute {
 				continue
 			}
@@ -608,11 +659,11 @@ func selectActivity(activities []OrttoActivityFeedEntry, mode ActivityFeedMode, 
 				continue
 			}
 			if fmt.Sprintf("%v", v) == want {
-				return &activities[i]
+				return true
 			}
 		}
+		return false
 	}
-	return nil
 }
 
 // ExtractAttributeName returns the name portion of an Ortto field key.
