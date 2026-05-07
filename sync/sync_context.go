@@ -3,6 +3,10 @@ package sync
 // TriggerInfo holds metadata about what initiated a sync operation.
 type TriggerInfo struct {
 	Source           string // e.g. "Raisely", "Manual"
+	ModelType        string // e.g. "INDIVIDUAL", GROUP
+	ModelID          string // e.g. Raisely Profile UUID
+	ParentType       string // e.g. "INDIVIDUAL", GROUP
+	ParentID         string // e.g. Raisely Parent Profile UUID
 	TriggerType      string // e.g. "webhook", "cli-sync-webhook", "webtracking", "admin-sync-preview", etc.
 	TriggerSubType   string // e.g. Raisely webhook event type "profile.created"
 	TriggerID        string // e.g. Raisely Event UUID
