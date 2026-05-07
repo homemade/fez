@@ -155,10 +155,19 @@ type MapResult struct {
 }
 
 // OrttoResponse is a marker interface for all ortto-specific response
-// types. Each target has its own concrete response type. The interface
-// carries no methods — error handling for Ortto API calls runs through
-// the HTTP status code returned by SendRequest's error result, not via
-// methods on the response body. See CDR-005 in raisortto.
+// types. Each target has its own concrete response type
+// (OrttoContactsResponse, OrttoActivitiesResponse). The interface
+// carries no methods.
+//
+// Error handling for Ortto API calls runs through the non-nil error
+// returned by SendRequest, which is populated from any non-2xx HTTP
+// response by the underlying carlmjohnson/requests Fetch call. Callers
+// should branch on that error and never on body-derived "is success"
+// methods — earlier iterations of this interface declared
+// IsSuccess()/GetError() methods that depended on a top-level `created`
+// count field that the Ortto Activities API does not actually return,
+// so they reported false negatives on every successful sync. They have
+// been removed; do not reintroduce them.
 type OrttoResponse interface{}
 
 // OrttoMapper is the interface for mapping Raisely data to ortto-specific formats.
@@ -347,24 +356,49 @@ type OrttoContactsResult struct {
 	Status   string `json:"status"`
 }
 
-// OrttoContactsResponse is the response type for the Ortto Contacts API.
-// Populated from /v1/person/merge: 2xx body decodes into Results, non-2xx
-// body decodes into Error via ErrorJSON. Error handling is via the
-// non-nil error returned by SendContactsMerge — callers should NOT
-// branch on body content alone (see CDR-005).
+// OrttoActivityIngestResult is one entry from the
+// /v1/activities/create success body's `activities` array. Per Ortto
+// docs (help.ortto.com/a-271), each entry reports the per-activity
+// ingestion outcome: status is typically "ingested" on success;
+// person_status is "created" / "updated" / etc. depending on whether
+// the merge resolved to a new or existing contact.
+type OrttoActivityIngestResult struct {
+	PersonID     string `json:"person_id"`
+	Status       string `json:"status"`
+	PersonStatus string `json:"person_status"`
+	ActivityID   string `json:"activity_id"`
+}
+
+// OrttoContactsResponse is the response type for the Ortto Contacts API
+// (POST /v1/person/merge). On a 2xx response the body is decoded into
+// Results; on a non-2xx response the body is decoded into Error by
+// ErrorJSON. Callers should determine success by branching on the
+// non-nil error returned by SendContactsMerge, not by inspecting body
+// content directly — Code:0 with empty Error is also the zero value
+// of OrttoError, so a successful 2xx body that lacks any "error" key
+// is indistinguishable from a malformed/empty body without the HTTP
+// signal.
 type OrttoContactsResponse struct {
 	Results []OrttoContactsResult `json:"people"`
 	Error   OrttoError
 }
 
 // OrttoActivitiesResponse is the response type for the Ortto Activities
-// API. Per Ortto docs (help.ortto.com/a-271), the success response shape
-// is `{activities: [{person_id, status, person_status, activity_id}]}`
-// — there is no top-level `created` count. We don't currently decode
-// the activities array because no caller needs per-activity status; if
-// that changes, add an `Activities []OrttoActivityIngestResult` field
-// here. Error handling is via the non-nil error returned by
-// SendActivitiesCreate — see CDR-005 in raisortto.
+// API (POST /v1/activities/create). Per Ortto's documented response
+// shape the success body is
+// `{"activities": [{"person_id": "...", "status": "ingested",
+// "person_status": "created", "activity_id": "..."}]}` — there is no
+// top-level `created` count field. The `activities` array is decoded
+// into Activities so that callers logging the response (typically via
+// fmt.Sprintf("%+v", resp)) capture the real per-activity ingestion
+// outcomes; without this field the log line collapses to the
+// zero-value Error struct, which is misleading because it parses as
+// "Code:0 / no error" regardless of whether anything was decoded.
+//
+// Error handling remains via the non-nil error returned by
+// SendActivitiesCreate; do not branch on Activities/Error content for
+// success/failure detection.
 type OrttoActivitiesResponse struct {
-	Error OrttoError
+	Activities []OrttoActivityIngestResult `json:"activities"`
+	Error      OrttoError
 }

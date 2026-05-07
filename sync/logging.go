@@ -35,15 +35,17 @@ const verboseFieldPrefix = "txt:"
 // trigger metadata for a sync, suitable for emitting on a dedicated
 // `Sync context: <this>` log line. The format mirrors the
 // obj:cm:sync-context attribute the activities mapper attaches to
-// each activity (RFC1123 timestamp), so timeline tooling can parse
-// either source with the same regex.
+// each activity (RFC1123 timestamp), so consumers can parse either
+// source with the same regex.
 //
 // The returned string is well under any per-record cap (~250 bytes
 // for a typical sync).
 //
-// Load-bearing: the rendered string is matched and parsed by the
-// timeline APL query in the raisortto repository — see
-// docs/observability/profile-timeline-apl.md.
+// Stable-format guarantee: the rendered shape is intended to be
+// matched and parsed by downstream log-analysis tooling. Field
+// order, key names, and the RFC1123 timestamp encoding are part of
+// the contract; do not change them without coordinating with
+// consumers.
 func LoggableSyncContext(sc *SyncContext) string {
 	osc := NewOrttoSyncContext(sc)
 	if t, err := time.Parse(time.RFC3339, osc.TriggerCreatedAt); err == nil {

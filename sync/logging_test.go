@@ -6,9 +6,11 @@ import (
 )
 
 // testMaxActivityLogBytes is the cap passed to LoggableActivity in
-// tests. Picked to roughly match raisortto's production usage
-// (~3,500 bytes, sized for Vercel's drain-to-Axiom per-record cap)
-// so size-driven branches exercise realistic thresholds.
+// tests. Sized (~3,500 bytes) to match a representative production
+// per-record log cap (e.g. Vercel's empirical drain-to-Axiom
+// per-record limit of ~3,827 bytes, with headroom for the runtime
+// log prefix), so size-driven branches exercise realistic
+// thresholds rather than artificial small caps.
 const testMaxActivityLogBytes = 3500
 
 func TestLoggableSyncContext(t *testing.T) {
