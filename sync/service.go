@@ -76,6 +76,14 @@ func NewService(config Config, campaignID string, trigger TriggerInfo, opts ...S
 	}
 }
 
+// SyncContext returns the Service's underlying SyncContext. Useful for
+// callers that need to render trigger metadata for logging without
+// reaching into private fields. CampaignName is populated only after
+// FetchCampaign has been called.
+func (s *Service) SyncContext() *SyncContext {
+	return s.sc
+}
+
 // FetchCampaign fetches (or cache-hits) the fundraising campaign from Raisely.
 // Must be called before Map and Send operations.
 // Set refresh=true to force a fresh fetch (e.g. on new registrations).
