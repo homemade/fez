@@ -69,6 +69,10 @@ func (a OrttoAttributes) MarshalJSON() ([]byte, error) {
 
 type OrttoSyncContext struct {
 	Source           string
+	ModelType        string
+	ModelID          string
+	ParentType       string
+	ParentID         string
 	TriggerType      string
 	TriggerSubType   string
 	TriggerID        string
@@ -81,6 +85,10 @@ type OrttoSyncContext struct {
 func NewOrttoSyncContext(sc *SyncContext) OrttoSyncContext {
 	return OrttoSyncContext{
 		Source:           sc.Source,
+		ModelType:        sc.ModelType,
+		ModelID:          sc.ModelID,
+		ParentType:       sc.ParentType,
+		ParentID:         sc.ParentID,
 		TriggerType:      sc.TriggerType,
 		TriggerSubType:   sc.TriggerSubType,
 		TriggerID:        sc.TriggerID,
@@ -101,6 +109,10 @@ func (c OrttoSyncContext) AsOrttoActivitiesAttributes() OrttoAttributes {
 	}
 	attributes := struct {
 		Source           string `json:"Source"`
+		ModelType        string `json:"Model-type,omitempty"`
+		ModelID          string `json:"Model-id,omitempty"`
+		ParentType       string `json:"Parent-type,omitempty"`
+		ParentID         string `json:"Parent-id,omitempty"`
 		TriggerType      string `json:"Trigger-type"`
 		TriggerSubType   string `json:"Trigger-subtype,omitempty"`
 		TriggerID        string `json:"Trigger-id,omitempty"`
@@ -109,6 +121,10 @@ func (c OrttoSyncContext) AsOrttoActivitiesAttributes() OrttoAttributes {
 		CampaignName     string `json:"Campaign-name"`
 	}{
 		Source:           c.Source,
+		ModelType:        c.ModelType,
+		ModelID:          c.ModelID,
+		ParentType:       c.ParentType,
+		ParentID:         c.ParentID,
 		TriggerType:      c.TriggerType,
 		TriggerSubType:   c.TriggerSubType,
 		TriggerID:        c.TriggerID,
