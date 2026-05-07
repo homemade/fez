@@ -3,7 +3,6 @@ package sync
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"log"
 	"sort"
 	"strings"
@@ -139,12 +138,12 @@ type MapResult struct {
 	RaiselyUpdate *UpdateRaiselyDataRequest
 }
 
-// OrttoResponse is the interface for all ortto-specific response types.
-// Each target has its own response type that implements this interface.
-type OrttoResponse interface {
-	IsSuccess() bool
-	GetError() error
-}
+// OrttoResponse is a marker interface for all ortto-specific response
+// types. Each target has its own concrete response type. The interface
+// carries no methods — error handling for Ortto API calls runs through
+// the HTTP status code returned by SendRequest's error result, not via
+// methods on the response body. See CDR-005 in raisortto.
+type OrttoResponse interface{}
 
 // OrttoMapper is the interface for mapping Raisely data to ortto-specific formats.
 // Implementations exist for each integration target (e.g., OrttoContactsMapper, OrttoActivitiesMapper).
@@ -333,39 +332,23 @@ type OrttoContactsResult struct {
 }
 
 // OrttoContactsResponse is the response type for the Ortto Contacts API.
+// Populated from /v1/person/merge: 2xx body decodes into Results, non-2xx
+// body decodes into Error via ErrorJSON. Error handling is via the
+// non-nil error returned by SendContactsMerge — callers should NOT
+// branch on body content alone (see CDR-005).
 type OrttoContactsResponse struct {
 	Results []OrttoContactsResult `json:"people"`
 	Error   OrttoError
 }
 
-// IsSuccess returns true if the response has no error code and has at least one result.
-func (r OrttoContactsResponse) IsSuccess() bool {
-	return r.Error.Code == 0 && len(r.Results) > 0
-}
-
-// GetError returns an error if the response contains an error code.
-func (r OrttoContactsResponse) GetError() error {
-	if r.Error.Code != 0 {
-		return fmt.Errorf("%d: %s", r.Error.Code, r.Error.Error)
-	}
-	return nil
-}
-
-// OrttoActivitiesResponse is the response type for the Ortto Activities API.
+// OrttoActivitiesResponse is the response type for the Ortto Activities
+// API. Per Ortto docs (help.ortto.com/a-271), the success response shape
+// is `{activities: [{person_id, status, person_status, activity_id}]}`
+// — there is no top-level `created` count. We don't currently decode
+// the activities array because no caller needs per-activity status; if
+// that changes, add an `Activities []OrttoActivityIngestResult` field
+// here. Error handling is via the non-nil error returned by
+// SendActivitiesCreate — see CDR-005 in raisortto.
 type OrttoActivitiesResponse struct {
-	Created int `json:"created"`
-	Error   OrttoError
-}
-
-// IsSuccess returns true if the response has no error code and at least one activity was created.
-func (r OrttoActivitiesResponse) IsSuccess() bool {
-	return r.Error.Code == 0 && r.Created > 0
-}
-
-// GetError returns an error if the response contains an error code.
-func (r OrttoActivitiesResponse) GetError() error {
-	if r.Error.Code != 0 {
-		return fmt.Errorf("%d: %s", r.Error.Code, r.Error.Error)
-	}
-	return nil
+	Error OrttoError
 }
