@@ -58,10 +58,9 @@ func LoggableSyncContext(sc *SyncContext) string {
 // an OrttoRequest's "shell" — every field except the
 // activities/contacts slice itself, which is replaced with a count.
 //
-// Used so the per-activity logging strategy (Plan 019 Phase 5) can
-// emit envelope fields once per request and iterate the slice
-// elements into separate `Sync activity N/M:` log lines, keeping
-// each log record under Vercel's drain cap.
+// Used so the per-activity logging can emit envelope fields once per
+// request and iterate the slice elements into separate
+// `Sync activity N/M:` log lines.
 //
 // Always small (< 200 bytes); fits comfortably under any cap.
 func LoggableRequestEnvelope(req OrttoRequest) string {
@@ -123,7 +122,7 @@ func LoggableActivity(activity OrttoActivity, maxBytes int) string {
 	if activity.Attributes != nil {
 		clone.Attributes = make(OrttoAttributes, len(activity.Attributes))
 		for k, v := range activity.Attributes {
-			if k == "obj:cm:sync-context" || k == "obj:cm:cdp-fields" {
+			if _, ok := MetaActivityAttributes[k]; ok { // skip meta data fields
 				continue
 			}
 			clone.Attributes[k] = v
