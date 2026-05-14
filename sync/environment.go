@@ -145,55 +145,19 @@ func LoadCampaignConfigFromEnvironment(embeddedMappings EmbeddedMappings, campai
 		opt(&options)
 	}
 
-	var result Config
 	campaignUUIDKey, err := campaignUUIDKeyForFlavour(GetInitialisedFlavour())
 	if err != nil {
-		return result, err
+		return Config{}, err
 	}
 	envVarName, mappingPath, err := FindCampaignEnvVar(campaignUUIDKey, campaign)
 	if err != nil {
-		return result, fmt.Errorf("failed to find campaign env var %w", err)
+		return Config{}, fmt.Errorf("failed to find campaign env var %w", err)
 	}
 	if envVarName == "" {
-		return result, fmt.Errorf("no env var found with %s %q", campaignUUIDKey, campaign)
+		return Config{}, fmt.Errorf("no env var found with %s %q", campaignUUIDKey, campaign)
 	}
 
-	// Use mapping path to find file
-	campaignMappingFile, target, err := embeddedMappings.MustFindFirstCampaignMappingFileWithTargetByPath(mappingPath)
-	if err != nil {
-		return result, fmt.Errorf("failed to read campaign mapping file %w", err)
-	}
-
-	// Load required and defaults for this target
-	requiredMappingFile, err := embeddedMappings.MustFindRequiredMappingFileForTarget(target)
-	if err != nil {
-		return result, fmt.Errorf("failed to read required mapping file %w", err)
-	}
-
-	defaultsMappingFile, err := embeddedMappings.MustFindDefaultsMappingFileForTarget(target)
-	if err != nil {
-		return result, fmt.Errorf("failed to read defaults mapping file %w", err)
-	}
-
-	compositeEnvVar := JSONCompositeEnvVar{Parent: envVarName}
-
-	yamlConfigUnmarshaler := YAMLConfigUnmarshaler{CRMFieldMapper: options.crmFieldMapper}
-
-	// Load config for this campaign
-	result, err = yamlConfigUnmarshaler.Unmarshal(
-		compositeEnvVar,
-		requiredMappingFile,
-		defaultsMappingFile,
-		campaignMappingFile,
-	)
-	if err != nil {
-		return result, fmt.Errorf("failed to load config %w", err)
-	}
-
-	// Store target in config
-	result.Target = target
-
-	return result, nil
+	return loadCampaignConfig(embeddedMappings, mappingPath, JSONCompositeEnvVar{Parent: envVarName}, options.crmFieldMapper)
 }
 
 // MapCompositeEnvVar implements CompositeEnvVar using an in-memory map.
@@ -220,12 +184,21 @@ func LoadCampaignConfigFromJSON(embeddedMappings EmbeddedMappings, configJSON ma
 		opt(&options)
 	}
 
-	var result Config
-
 	mappingPath := configJSON["MAPPING_PATH"]
 	if mappingPath == "" {
-		return result, fmt.Errorf("MAPPING_PATH is required")
+		return Config{}, fmt.Errorf("MAPPING_PATH is required")
 	}
+
+	return loadCampaignConfig(embeddedMappings, mappingPath, MapCompositeEnvVar{Values: configJSON}, options.crmFieldMapper)
+}
+
+// loadCampaignConfig is the shared file-load + unmarshal + validation
+// pipeline used by both LoadCampaignConfigFromEnvironment and
+// LoadCampaignConfigFromJSON. Callers only differ in how they resolve
+// mappingPath and which CompositeEnvVar implementation supplies config
+// values.
+func loadCampaignConfig(embeddedMappings EmbeddedMappings, mappingPath string, compositeEnvVar CompositeEnvVar, crmFieldMapper CRMFieldMapper) (Config, error) {
+	var result Config
 
 	campaignMappingFile, target, err := embeddedMappings.MustFindFirstCampaignMappingFileWithTargetByPath(mappingPath)
 	if err != nil {
@@ -242,21 +215,28 @@ func LoadCampaignConfigFromJSON(embeddedMappings EmbeddedMappings, configJSON ma
 		return result, fmt.Errorf("failed to read defaults mapping file %w", err)
 	}
 
-	compositeEnvVar := MapCompositeEnvVar{Values: configJSON}
+	// Optional referrals companion file (Raisely Custom Messages mapping)
+	referralsCompanionFile, err := embeddedMappings.FindReferralsCompanionMappingFileByPath(mappingPath, target)
+	if err != nil {
+		return result, fmt.Errorf("failed to read referrals companion mapping file %w", err)
+	}
 
-	yamlConfigUnmarshaler := YAMLConfigUnmarshaler{CRMFieldMapper: options.crmFieldMapper}
+	sources := []MappingFile{requiredMappingFile, defaultsMappingFile, campaignMappingFile}
+	if referralsCompanionFile.Length > 0 {
+		sources = append(sources, referralsCompanionFile)
+	}
 
-	result, err = yamlConfigUnmarshaler.Unmarshal(
-		compositeEnvVar,
-		requiredMappingFile,
-		defaultsMappingFile,
-		campaignMappingFile,
-	)
+	result, err = YAMLConfigUnmarshaler{CRMFieldMapper: crmFieldMapper}.Unmarshal(compositeEnvVar, sources...)
 	if err != nil {
 		return result, fmt.Errorf("failed to load config %w", err)
 	}
 
 	result.Target = target
+
+	// Validate: if referrals trigger is set, the companion file is required.
+	if result.API.Settings.RaiselyFundraiserReferralsField != "" && referralsCompanionFile.Length == 0 {
+		return result, fmt.Errorf("raiselyFundraiserReferralsField is set but no referrals companion mapping file was found at %s.referrals.yaml", mappingPath)
+	}
 
 	return result, nil
 }

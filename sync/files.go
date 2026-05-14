@@ -96,8 +96,22 @@ func (em EmbeddedMappings) MustFindFirstCampaignMappingFileWithTargetByPath(mapp
 		p := file.Name()
 		name := strings.TrimSuffix(p, ".yaml")
 		name = strings.TrimSuffix(name, ".yml")
-		parts := strings.SplitN(name, ".", 2)
-		if parts[0] != fileLabel {
+
+		// Tightened match: the stem must be exactly <fileLabel> (legacy, no
+		// target suffix) or <fileLabel>.<knownTarget>. Anything with extra
+		// dot-separated segments — e.g. <fileLabel>.<knownTarget>.referrals
+		// — is a companion file and must not compete for the target slot.
+		var matchedTarget string
+		switch {
+		case name == fileLabel:
+			matchedTarget = ""
+		case strings.HasPrefix(name, fileLabel+"."):
+			rest := strings.TrimPrefix(name, fileLabel+".")
+			if !knownTargets[rest] {
+				continue
+			}
+			matchedTarget = rest
+		default:
 			continue
 		}
 
@@ -107,8 +121,7 @@ func (em EmbeddedMappings) MustFindFirstCampaignMappingFileWithTargetByPath(mapp
 			return result, target, err
 		}
 
-		// Extract target from filename
-		target = extractTargetFromFilename(p)
+		target = matchedTarget
 
 		fullpath := path.Join(dir, p)
 		var campaignMappings []byte
@@ -129,6 +142,39 @@ func (em EmbeddedMappings) MustFindFirstCampaignMappingFileWithTargetByPath(mapp
 var knownTargets = map[string]bool{
 	"ortto-contacts":   true,
 	"ortto-activities": true,
+}
+
+// FindReferralsCompanionMappingFileByPath looks for a referrals
+// companion file alongside the campaign mapping file at <mappingpath>.
+// The companion filename is <label>[.<target>].referrals.yaml.
+// Returns a zero MappingFile and a nil error if the companion does not
+// exist (the companion is optional).
+func (em EmbeddedMappings) FindReferralsCompanionMappingFileByPath(mappingpath, target string) (MappingFile, error) {
+	var result MappingFile
+	index := strings.LastIndex(mappingpath, "/")
+	if index == -1 {
+		return result, fmt.Errorf("invalid mapping path %q: must contain org directory (e.g. ORG/LABEL)", mappingpath)
+	}
+	dir := path.Join(em.Root, mappingpath[:index])
+	label := mappingpath[index+1:]
+
+	companionName := label + ".referrals.yaml"
+	if target != "" {
+		companionName = label + "." + target + ".referrals.yaml"
+	}
+
+	fullpath := path.Join(dir, companionName)
+	companionBytes, err := em.Files.ReadFile(fullpath)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return result, nil
+		}
+		return result, err
+	}
+	result.Name = fullpath
+	result.Reader = bytes.NewReader(companionBytes)
+	result.Length = len(companionBytes)
+	return result, nil
 }
 
 // extractTargetFromFilename extracts the target from a campaign mapping filename.

@@ -5,11 +5,9 @@ import (
 )
 
 // RaiselyMapper handles mapping Raisely data to target formats.
-// It embeds *SyncContext for shared configuration and uses a named
-// RaiselyFetcherAndUpdater field for Raisely API operations.
+// It embeds *SyncContext for shared configuration.
 type RaiselyMapper struct {
 	*SyncContext
-	RaiselyFetcherAndUpdater *RaiselyFetcherAndUpdater
 }
 
 // MapFundraiserFields maps builtin and custom fundraiser fields from source to destination.

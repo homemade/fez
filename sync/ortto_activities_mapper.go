@@ -8,10 +8,8 @@ import (
 	"log"
 	"sort"
 	"strings"
-	"time"
 
 	"github.com/tidwall/gjson"
-	"github.com/tidwall/sjson"
 )
 
 // OrttoActivitiesMapper maps Raisely data to Ortto Activities API format.
@@ -283,110 +281,6 @@ func (o *OrttoActivitiesMapper) SendRequest(req OrttoRequest, ctx context.Contex
 	return result, err
 }
 
-// MapFundraiserReferrals reads an array of referral entries from the fundraiser profile,
-// maps each unprocessed entry to an OrttoActivity using FundraiserReferralFieldMappings,
-// and returns a MapResult containing the activities request and a Raisely write-back
-// that marks them as processed. Returns nil if referrals are not configured or there
-// are no unprocessed entries.
-// The referrals array is processed as raw JSON (gjson/sjson) to preserve any unknown fields.
-func (o *OrttoActivitiesMapper) MapFundraiserReferrals(
-	p2pRegistrationID string,
-	profileData FundraiserData,
-) (*MapResult, error) {
-
-	referralsField := o.Config.API.Settings.RaiselyFundraiserReferralsField
-	if referralsField == "" {
-		return nil, nil
-	}
-
-	// Read the referrals array as raw JSON from the profile
-	referralsJSON, exists := profileData.Page.Source.StringForPath(referralsField)
-	if !exists || referralsJSON == "" || referralsJSON == "null" {
-		return nil, nil
-	}
-
-	referralsArray := gjson.Parse(referralsJSON)
-	if !referralsArray.IsArray() {
-		log.Printf("Warning: referrals field %q is not a JSON array, skipping", referralsField)
-		return nil, nil
-	}
-
-	// Identify unprocessed entries (no processedAt field)
-	var unprocessedIndices []int
-	referralsArray.ForEach(func(key, value gjson.Result) bool {
-		if !value.Get("processedAt").Exists() || value.Get("processedAt").String() == "" {
-			unprocessedIndices = append(unprocessedIndices, int(key.Int()))
-		}
-		return true
-	})
-
-	if len(unprocessedIndices) == 0 {
-		return nil, nil
-	}
-
-	log.Printf("Referrals sync: found %d unprocessed referral(s)", len(unprocessedIndices))
-
-	// Map each unprocessed entry to an OrttoActivity
-	var activities []OrttoActivity
-	entries := referralsArray.Array()
-	processedAt := time.Now().UTC().Format(time.RFC3339)
-	updatedJSON := referralsJSON
-
-	for _, idx := range unprocessedIndices {
-		entry := entries[idx]
-
-		// Wrap the entry as a Source for field mapping (same pattern as MapTrackingData)
-		// Set the profile as parent so ^. paths resolve against the fundraiser profile
-		source := Source{data: entry, parent: &profileData.Page.Source}
-
-		activity := OrttoActivity{
-			ActivityID: o.Config.API.Settings.OrttoActivityID,
-			Fields:     make(map[string]interface{}),
-			Attributes: NewOrttoSyncContext(o.SyncContext).AsOrttoActivitiesAttributes(),
-		}
-
-		MapFields(o.Config.FundraiserReferralFieldMappings.Builtin, source, &activity)
-		MapFields(o.Config.FundraiserReferralFieldMappings.Custom, source, &activity)
-
-		o.SeparateFieldsAndAttributesAndSortAttributes(&activity)
-
-		// Skip referrals without an email — the request uses MergeBy str::email
-		// so there's nothing to match on. Still mark as processed to avoid retrying.
-		email, hasEmail := activity.Fields["str::email"]
-		if !hasEmail || email == nil || email == "" {
-			log.Printf("Warning: referral %d has no email, skipping Ortto activity (will still mark as processed)", idx)
-		} else {
-			activities = append(activities, activity)
-		}
-
-		// Mark as processed in the raw JSON using sjson (preserves unknown fields)
-		var err error
-		updatedJSON, err = sjson.Set(updatedJSON, fmt.Sprintf("%d.processedAt", idx), processedAt)
-		if err != nil {
-			return nil, fmt.Errorf("failed to set processedAt on referral %d: %w", idx, err)
-		}
-	}
-
-	// Build the Raisely write-back request with the updated array
-	writeBackJSON, err := sjson.SetRaw("", "data."+referralsField, updatedJSON)
-	if err != nil {
-		return nil, fmt.Errorf("failed to build referrals write-back JSON: %w", err)
-	}
-
-	return &MapResult{
-		Request: OrttoActivitiesRequest{
-			Activities:    activities,
-			Async:         false,
-			MergeBy:       []string{"str::email"},
-			MergeStrategy: 2, // Overwrite existing
-		},
-		RaiselyUpdate: &UpdateRaiselyDataRequest{
-			P2PID: p2pRegistrationID,
-			JSON:  writeBackJSON,
-		},
-	}, nil
-}
-
 // ActivityDefinitionRequest represents the request to create an Ortto activity definition
 type ActivityDefinitionRequest struct {
 	Name                 string                        `json:"name"`
@@ -482,9 +376,6 @@ func (o OrttoActivitiesMapper) BuildActivityDefinitionRequest(activityName strin
 
 	// Extract attributes from custom team field mappings
 	o.extractFieldMappings(&request.Attributes, o.Config.TeamFieldMappings.Custom, personFieldIDs)
-
-	// Extract attributes from custom fundraiser referral field mappings
-	o.extractFieldMappings(&request.Attributes, o.Config.FundraiserReferralFieldMappings.Custom, personFieldIDs)
 
 	// Merge in any extra custom fields from trackingConfig (not already included)
 	trackingAttributes := []ActivityDefinitionAttribute{}

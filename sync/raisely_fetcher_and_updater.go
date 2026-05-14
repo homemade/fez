@@ -411,10 +411,14 @@ func (r *RaiselyFetcherAndUpdater) RaiselyAPIKey() string {
 	return r.Config.API.Keys.Raisely
 }
 
+// raiselyAPIBaseURL is the base URL for the main Raisely API.
+// Overridable in tests.
+var raiselyAPIBaseURL = "https://api.raisely.com"
+
 // RaiselyAPIBuilder returns a new requests.Builder configured for the Raisely API.
 func (r *RaiselyFetcherAndUpdater) RaiselyAPIBuilder() *requests.Builder {
 	apiBuilder := requests.
-		URL("https://api.raisely.com").
+		URL(raiselyAPIBaseURL).
 		Client(&http.Client{Timeout: HTTPRequestTimeout})
 	if r.RecordRequests {
 		apiBuilder = apiBuilder.Transport(requests.Record(nil, fmt.Sprintf("pkg/testdata/.requests/%s/raisely", r.Campaign)))
@@ -573,6 +577,194 @@ func (r *RaiselyFetcherAndUpdater) UpdateRaiselyData(request UpdateRaiselyDataRe
 type UpdateRaiselyDataRequest struct {
 	P2PID string
 	JSON  string
+}
+
+// RaiselyCustomMessageRequest is a single event POSTed to the Raisely
+// Custom Messages API. User and Custom are pass-through maps that land
+// at data.data.user.<key> and data.data.custom.<key> in the body.
+type RaiselyCustomMessageRequest struct {
+	Source string
+	User   map[string]interface{}
+	Custom map[string]interface{}
+}
+
+// ReferralBatch carries everything needed to send a set of Raisely
+// Custom Message events and write back per-entry processedAt to Raisely.
+// The send + write-back are bundled inside the receiving Service method
+// so that a partial send failure only leaves failed entries unprocessed,
+// letting the next webhook retry only those (no duplicate sends).
+type ReferralBatch struct {
+	Messages       []RaiselyCustomMessageRequest
+	EntryIndices   []int  // same length as Messages — source-array index of each
+	ProfileID      string // Raisely profile to write back to
+	ReferralsField string // path to the referrals array on the profile (e.g. "private.invitations")
+	ReferralsJSON  string // raw referrals array JSON (the sjson base)
+	SkippedIndices []int  // entries marked processed without a send (e.g. missing email)
+}
+
+// raiselyCustomMessageEnvelope is the wire-format wrapper for the
+// Raisely Custom Messages API. See SendCustomMessage.
+type raiselyCustomMessageEnvelope struct {
+	Data raiselyCustomMessageEnvelopeData `json:"data"`
+}
+
+type raiselyCustomMessageEnvelopeData struct {
+	Version int                         `json:"version"`
+	Type    string                      `json:"type"`
+	Source  string                      `json:"source"`
+	Data    raiselyCustomMessagePayload `json:"data"`
+}
+
+type raiselyCustomMessagePayload struct {
+	User   map[string]interface{} `json:"user"`
+	Custom map[string]interface{} `json:"custom,omitempty"`
+}
+
+// raiselyMessagesAPIBaseURL is the base URL for the Raisely Custom
+// Messages API. Overridable in tests.
+var raiselyMessagesAPIBaseURL = "https://communications.raisely.com"
+
+// RaiselyMessagesAPIBuilder returns a new requests.Builder configured for
+// the Raisely Custom Messages API (separate host from the main Raisely
+// API).
+func (r *RaiselyFetcherAndUpdater) RaiselyMessagesAPIBuilder() *requests.Builder {
+	apiBuilder := requests.
+		URL(raiselyMessagesAPIBaseURL).
+		Client(&http.Client{Timeout: HTTPRequestTimeout})
+	if r.RecordRequests {
+		apiBuilder = apiBuilder.Transport(requests.Record(nil, fmt.Sprintf("pkg/testdata/.requests/%s/raisely-messages", r.Campaign)))
+	}
+	return apiBuilder
+}
+
+// MapFundraiserReferrals reads the referrals array from the fundraiser
+// profile and builds a ReferralBatch of unprocessed entries. Each entry
+// either becomes a RaiselyCustomMessageRequest (tagged with its source
+// index) or, if it has no resolvable email, is recorded as a skipped
+// index. The write-back is deferred to Service.ProcessReferrals so
+// processedAt can be set per-success instead of per-batch.
+// Returns (nil, nil) if the trigger is not configured, the field is
+// absent/empty/non-array, or there are no unprocessed entries.
+func (r *RaiselyFetcherAndUpdater) MapFundraiserReferrals(
+	profileID string,
+	profileData FundraiserData,
+	config Config,
+	campaignUUID string,
+) (*ReferralBatch, error) {
+
+	referralsField := config.API.Settings.RaiselyFundraiserReferralsField
+	if referralsField == "" {
+		return nil, nil
+	}
+
+	referralsJSON, exists := profileData.Page.Source.StringForPath(referralsField)
+	if !exists || referralsJSON == "" || referralsJSON == "null" {
+		return nil, nil
+	}
+
+	referralsArray := gjson.Parse(referralsJSON)
+	if !referralsArray.IsArray() {
+		log.Printf("Warning: referrals field %q is not a JSON array, skipping", referralsField)
+		return nil, nil
+	}
+
+	var unprocessedIndices []int
+	referralsArray.ForEach(func(key, value gjson.Result) bool {
+		if !value.Get("processedAt").Exists() || value.Get("processedAt").String() == "" {
+			unprocessedIndices = append(unprocessedIndices, int(key.Int()))
+		}
+		return true
+	})
+
+	if len(unprocessedIndices) == 0 {
+		return nil, nil
+	}
+
+	log.Printf("Referrals sync: found %d unprocessed referral(s)", len(unprocessedIndices))
+
+	batch := &ReferralBatch{
+		ProfileID:      profileID,
+		ReferralsField: referralsField,
+		ReferralsJSON:  referralsJSON,
+	}
+	entries := referralsArray.Array()
+	eventSource := "campaign:" + campaignUUID
+
+	for _, idx := range unprocessedIndices {
+		entry := entries[idx]
+		// Parent set to the fundraiser profile so "^." paths resolve against
+		// the profile fields rather than the referral entry.
+		source := Source{data: entry, parent: &profileData.Page.Source}
+
+		userMap := resolveMessageMap(source, config.FundraiserReferralFieldMappings.User)
+		customMap := resolveMessageMap(source, config.FundraiserReferralFieldMappings.Custom)
+
+		email, _ := userMap["email"].(string)
+		if email == "" {
+			log.Printf("Warning: referral %d has no email, skipping Raisely Custom Message (will still mark as processed)", idx)
+			batch.SkippedIndices = append(batch.SkippedIndices, idx)
+			continue
+		}
+
+		batch.Messages = append(batch.Messages, RaiselyCustomMessageRequest{
+			Source: eventSource,
+			User:   userMap,
+			Custom: customMap,
+		})
+		batch.EntryIndices = append(batch.EntryIndices, idx)
+	}
+
+	return batch, nil
+}
+
+// resolveMessageMap resolves each path in the flat mapping against the
+// source and returns the resulting key→value map. Backtick-wrapped
+// values are treated as literal strings (matching MapFields). Missing
+// values are omitted from the result — the receiving Raisely message
+// template branches on key presence.
+func resolveMessageMap(source Source, mapping map[string]string) map[string]interface{} {
+	if len(mapping) == 0 {
+		return nil
+	}
+	result := make(map[string]interface{}, len(mapping))
+	for key, path := range mapping {
+		if len(path) >= 2 && path[0] == '`' && path[len(path)-1] == '`' {
+			result[key] = path[1 : len(path)-1]
+			continue
+		}
+		if v, ok := source.StringForPath(path); ok {
+			result[key] = v
+		}
+	}
+	return result
+}
+
+// SendCustomMessage POSTs one event to the Raisely Custom Messages API.
+// The API authenticates with a bearer token of the form "raisely:<apiKey>".
+func (r *RaiselyFetcherAndUpdater) SendCustomMessage(request RaiselyCustomMessageRequest, ctx context.Context) error {
+	body := raiselyCustomMessageEnvelope{
+		Data: raiselyCustomMessageEnvelopeData{
+			Version: 1,
+			Type:    "raisely.custom",
+			Source:  request.Source,
+			Data: raiselyCustomMessagePayload{
+				User:   request.User,
+				Custom: request.Custom,
+			},
+		},
+	}
+	raiselyError := RaiselyError{}
+	err := r.RaiselyMessagesAPIBuilder().
+		Post().
+		Path("/v1/events").
+		Bearer("raisely:" + r.RaiselyAPIKey()).
+		BodyJSON(body).
+		ErrorJSON(&raiselyError).
+		Fetch(ctx)
+	if err != nil {
+		log.Printf("Raisely Error: %+v", raiselyError)
+	}
+	return err
 }
 
 // RaiselyWebhookConfig represents a webhook configuration in Raisely.

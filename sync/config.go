@@ -24,13 +24,20 @@ type Config struct {
 	TeamFieldMappings         struct {
 		Custom FieldMappings
 	}
-	TeamFieldTransforms            map[string]string
-	FundraiserReferralFieldMappings struct {
-		Builtin FieldMappings
-		Custom  FieldMappings
-	} `yaml:"fundraiserReferralFieldMappings"`
-	FundraiserExtensions FundraiserExtensionsConfig
-	TeamExtensions       TeamExtensionsConfig
+	TeamFieldTransforms       map[string]string
+	FundraiserReferralFieldMappings RaiselyMessageMappings `yaml:"fundraiserReferralFieldMappings"`
+	FundraiserExtensions      FundraiserExtensionsConfig
+	TeamExtensions            TeamExtensionsConfig
+}
+
+// RaiselyMessageMappings is the pass-through field map for a Raisely
+// Custom Messages event. Each entry in User / Custom lands at
+// data.data.user.<key> / data.data.custom.<key> in the POST body
+// verbatim; the receiving Raisely message template is authoritative on
+// which keys it needs.
+type RaiselyMessageMappings struct {
+	User   map[string]string
+	Custom map[string]string
 }
 
 type APISettings struct {
@@ -367,12 +374,6 @@ func (u YAMLConfigUnmarshaler) Unmarshal(compev CompositeEnvVar, sources ...Mapp
 		}
 		if err == nil {
 			err = u.CRMFieldMapper.ExpandFieldMappings(&result.TeamFieldMappings.Custom, true)
-		}
-		if err == nil {
-			err = u.CRMFieldMapper.ExpandFieldMappings(&result.FundraiserReferralFieldMappings.Builtin, false)
-		}
-		if err == nil {
-			err = u.CRMFieldMapper.ExpandFieldMappings(&result.FundraiserReferralFieldMappings.Custom, true)
 		}
 		if err != nil {
 			return result, err

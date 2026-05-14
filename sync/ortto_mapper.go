@@ -146,14 +146,6 @@ type OrttoRequest interface {
 	AsOrttoActivitiesRequest() (OrttoActivitiesRequest, bool) // Returns (request, true) if activities request, (zero, false) otherwise
 }
 
-// MapResult pairs an Ortto request with an optional Raisely write-back.
-// Service methods return []MapResult — one per logical mapping step
-// (e.g. profile mapping, referrals mapping).
-type MapResult struct {
-	Request       OrttoRequest
-	RaiselyUpdate *UpdateRaiselyDataRequest
-}
-
 // OrttoResponse is a marker interface for all ortto-specific response
 // types. Each target has its own concrete response type
 // (OrttoContactsResponse, OrttoActivitiesResponse). The interface
@@ -185,9 +177,8 @@ type OrttoMapper interface {
 func NewOrttoMapper(sc *SyncContext) OrttoMapper {
 	mustBeInitialised()
 
-	raiselyFetcherAndUpdater := &RaiselyFetcherAndUpdater{SyncContext: sc}
 	orttoFetcherAndUpdater := OrttoFetcherAndUpdater{SyncContext: sc}
-	raiselyMapper := RaiselyMapper{SyncContext: sc, RaiselyFetcherAndUpdater: raiselyFetcherAndUpdater}
+	raiselyMapper := RaiselyMapper{SyncContext: sc}
 
 	switch sc.Config.Target {
 	case "ortto-activities":

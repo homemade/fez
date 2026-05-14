@@ -69,39 +69,6 @@ func GenerateFieldDocumentation(config Config, campaignLabel string, isPersonFie
 	return doc
 }
 
-// GenerateReferralFieldDocumentation generates field documentation for referral mappings.
-// Returns nil if no referral mappings are configured.
-func GenerateReferralFieldDocumentation(config Config, campaignLabel string, isPersonFieldFn func(fieldID string) bool) *FieldDocumentation {
-	hasBuiltin := len(config.FundraiserReferralFieldMappings.Builtin.AllKeys()) > 0
-	hasCustom := len(config.FundraiserReferralFieldMappings.Custom.AllKeys()) > 0
-	if !hasBuiltin && !hasCustom {
-		return nil
-	}
-
-	doc := FieldDocumentation{
-		CampaignLabel: campaignLabel,
-		Target:        config.Target,
-		Rows:          []FieldDocRow{},
-	}
-
-	processFieldMappings(&doc.Rows, config.FundraiserReferralFieldMappings.Builtin, nil, true, false, true, isPersonFieldFn)
-	processFieldMappings(&doc.Rows, config.FundraiserReferralFieldMappings.Custom, nil, false, false, true, isPersonFieldFn)
-
-	sort.SliceStable(doc.Rows, func(i, j int) bool {
-		if config.Target == "ortto-activities" {
-			if doc.Rows[i].Entity != doc.Rows[j].Entity {
-				return doc.Rows[i].Entity == "Person"
-			}
-		}
-		if doc.Rows[i].IsBuiltin != doc.Rows[j].IsBuiltin {
-			return doc.Rows[i].IsBuiltin
-		}
-		return doc.Rows[i].FieldName < doc.Rows[j].FieldName
-	})
-
-	return &doc
-}
-
 // processFieldMappings extracts field documentation from a FieldMappings struct.
 // Fields are processed in sorted order by field ID for deterministic output.
 func processFieldMappings(rows *[]FieldDocRow, mappings FieldMappings, transforms map[string]string, isBuiltin bool, isTeamField bool, isReferralField bool, isPersonFieldFn func(fieldID string) bool) {
