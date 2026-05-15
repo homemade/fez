@@ -176,19 +176,3 @@ func (em EmbeddedMappings) FindReferralsCompanionMappingFileByPath(mappingpath, 
 	result.Length = len(companionBytes)
 	return result, nil
 }
-
-// extractTargetFromFilename extracts the target from a campaign mapping filename.
-// Filename format: <uuid>.<label>[.<target>].yaml
-// Returns empty string for legacy files without a target suffix.
-func extractTargetFromFilename(filename string) string {
-	name := strings.TrimSuffix(filename, ".yaml")
-	name = strings.TrimSuffix(name, ".yml")
-	parts := strings.Split(name, ".")
-	if len(parts) >= 2 {
-		lastPart := parts[len(parts)-1]
-		if knownTargets[lastPart] {
-			return lastPart
-		}
-	}
-	return "" // legacy, defaults to ortto-contacts
-}
