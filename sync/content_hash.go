@@ -4,12 +4,13 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"sort"
 	"strings"
 )
 
-// MetaActivityAttributes is the set of attribute keys that the fez
-// mapper manages automatically rather than treating as user-defined
-// activity content:
+// IsMetaActivityAttribute reports whether key names an attribute that
+// the fez mapper manages automatically rather than treating as
+// user-defined activity content:
 //
 //   - obj:cm:sync-context — trigger identifiers and timestamps for
 //     the inbound event that produced this activity.
@@ -18,14 +19,34 @@ import (
 //
 // Downstream operations that produce a representation of an activity
 // for comparison, display, or snapshot purposes typically skip these
-// entries: they vary independently of the activity's user-visible
-// content (sync-context) or duplicate other parts of the payload
-// (cdp-fields) and would otherwise add noise or false negatives.
+// keys: they vary independently of the activity's user-visible content
+// (sync-context) or duplicate other parts of the payload (cdp-fields)
+// and would otherwise add noise or false negatives.
 //
-// Exposed so callers building their own activity views (logs,
-// fingerprints, exports, snapshots) can share the same skip set
-// rather than duplicating the key list at each call site.
-var MetaActivityAttributes = map[string]struct{}{
+// Use this together with MetaActivityAttributeKeys when building
+// activity views (logs, fingerprints, exports, snapshots) so the
+// skip set stays in sync with fez's mapper behaviour.
+func IsMetaActivityAttribute(key string) bool {
+	_, ok := metaActivityAttributes[key]
+	return ok
+}
+
+// MetaActivityAttributeKeys returns a fresh sorted slice of the
+// attribute keys recognised by IsMetaActivityAttribute. The returned
+// slice is owned by the caller and may be modified freely.
+func MetaActivityAttributeKeys() []string {
+	keys := make([]string, 0, len(metaActivityAttributes))
+	for k := range metaActivityAttributes {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+// metaActivityAttributes is the lookup-shaped backing store for the
+// fez-managed activity attribute keys. See IsMetaActivityAttribute
+// for the meaning of each entry.
+var metaActivityAttributes = map[string]struct{}{
 	"obj:cm:sync-context": {},
 	"obj:cm:cdp-fields":   {},
 }
@@ -63,9 +84,9 @@ func (a OrttoActivity) ContentHash() string {
 	return hex.EncodeToString(sum[:])[:16]
 }
 
-// stripMetaAttributes returns a shallow copy of attrs with the
-// keys listed in MetaActivityAttributes removed. nil in → nil out
-// so callers can distinguish "no attributes" from "empty attributes"
+// stripMetaAttributes returns a shallow copy of attrs with the keys
+// recognised by IsMetaActivityAttribute removed. nil in → nil out so
+// callers can distinguish "no attributes" from "empty attributes"
 // without an extra check.
 func stripMetaAttributes(attrs OrttoAttributes) map[string]interface{} {
 	if attrs == nil {
@@ -73,7 +94,7 @@ func stripMetaAttributes(attrs OrttoAttributes) map[string]interface{} {
 	}
 	out := make(map[string]interface{}, len(attrs))
 	for k, v := range attrs {
-		if _, ok := MetaActivityAttributes[k]; ok {
+		if _, ok := metaActivityAttributes[k]; ok {
 			continue
 		}
 		out[k] = v

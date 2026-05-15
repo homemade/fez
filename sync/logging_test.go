@@ -67,7 +67,7 @@ func TestLoggableRequestEnvelope_Activities(t *testing.T) {
 			{ActivityID: "act:cm:test", Fields: map[string]interface{}{}},
 		},
 		Async:         false,
-		MergeBy:       []string{"str:cm:tbs26-registration-id", "str::email"},
+		MergeBy:       []string{"str:cm:example-p2p-registration-id", "str::email"},
 		MergeStrategy: 2,
 	}
 
@@ -76,7 +76,7 @@ func TestLoggableRequestEnvelope_Activities(t *testing.T) {
 	for _, want := range []string{
 		"Activities:3",
 		"Async:false",
-		"MergeBy:[str:cm:tbs26-registration-id str::email]",
+		"MergeBy:[str:cm:example-p2p-registration-id str::email]",
 		"MergeStrategy:2",
 	} {
 		if !strings.Contains(got, want) {
@@ -126,7 +126,7 @@ func TestLoggableActivity_StripsMetaAttributes(t *testing.T) {
 			"str:cm:name":         "Alice",
 		},
 		Fields: map[string]interface{}{
-			"str:cm:tbs26-registration-id": "00000000-0000-0000-0000-000000000003",
+			"str:cm:example-p2p-registration-id": "00000000-0000-0000-0000-000000000003",
 			"str::email":                   "alice@example.com",
 		},
 	}
@@ -136,7 +136,7 @@ func TestLoggableActivity_StripsMetaAttributes(t *testing.T) {
 	for _, want := range []string{
 		"ActivityID:act:cm:test",
 		"str:cm:name:Alice",
-		"str:cm:tbs26-registration-id:00000000-0000-0000-0000-000000000003",
+		"str:cm:example-p2p-registration-id:00000000-0000-0000-0000-000000000003",
 		"str::email:alice@example.com",
 	} {
 		if !strings.Contains(got, want) {
@@ -188,7 +188,7 @@ func TestLoggableActivity_DropsVerboseFieldsWhenOversize(t *testing.T) {
 			"str:cm:name":          "Alice",
 		},
 		Fields: map[string]interface{}{
-			"str:cm:tbs26-registration-id": "00000000-0000-0000-0000-000000000003",
+			"str:cm:example-p2p-registration-id": "00000000-0000-0000-0000-000000000003",
 		},
 	}
 
@@ -205,7 +205,7 @@ func TestLoggableActivity_DropsVerboseFieldsWhenOversize(t *testing.T) {
 	}
 	// The merge-field substring must survive — the timeline's
 	// content-based seed match relies on it.
-	if !strings.Contains(got, "str:cm:tbs26-registration-id:00000000-0000-0000-0000-000000000003") {
+	if !strings.Contains(got, "str:cm:example-p2p-registration-id:00000000-0000-0000-0000-000000000003") {
 		t.Errorf("LoggableActivity: merge-field substring must survive drops, got: %s", got)
 	}
 }

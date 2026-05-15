@@ -267,7 +267,7 @@ type OrttoActivity struct {
 func (a *OrttoActivity) TakeSnapshot(field string) {
 	// Snapshot field is an object containing all user-defined activity
 	// attributes, with the fez-managed meta data attributes (see
-	// MetaActivityAttributes) excluded.
+	// IsMetaActivityAttribute) excluded.
 	removeOrttoMetaPrefix := func(s string) string {
 		_, afterFirst, foundFirst := strings.Cut(s, ":")
 		if foundFirst {
@@ -281,7 +281,7 @@ func (a *OrttoActivity) TakeSnapshot(field string) {
 	}
 	snapshot := make(map[string]interface{})
 	for k, v := range a.Attributes {
-		if _, ok := MetaActivityAttributes[k]; ok { // exclude meta data fields
+		if _, ok := metaActivityAttributes[k]; ok { // exclude meta data fields
 			continue
 		}
 		// remove nil fields

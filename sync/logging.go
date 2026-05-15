@@ -122,7 +122,7 @@ func LoggableActivity(activity OrttoActivity, maxBytes int) string {
 	if activity.Attributes != nil {
 		clone.Attributes = make(OrttoAttributes, len(activity.Attributes))
 		for k, v := range activity.Attributes {
-			if _, ok := MetaActivityAttributes[k]; ok { // skip meta data fields
+			if _, ok := metaActivityAttributes[k]; ok { // skip meta data fields
 				continue
 			}
 			clone.Attributes[k] = v
