@@ -224,13 +224,18 @@ func AddTotalInWindow(extensions FundraiserExtensions, json string) (string, err
 	total, _ := extensions.Page.Source.IntForPath("total")
 
 	// Skip-if-unchanged: only write when the value differs from what's
-	// already stored, matching the other writers in this file (streaks and
-	// split totals both guard their sjson.Set the same way). Writing
+	// already stored, like the other writers in this file (streaks and split
+	// totals guard their sjson.Set the same way) — plus an existence check so
+	// a genuine first-time zero still materialises the field. Writing
 	// unconditionally keeps the returned payload non-empty on every in-window
 	// event, so an upstream event flood for one profile is amplified into a
 	// write storm instead of collapsing to no-ops once the value has settled.
-	currentValue, _ := extensions.Page.Source.IntForPath(extensions.Config.TotalInWindow.Mapping)
-	if total == currentValue {
+	// hasCurrent distinguishes "field absent" from "field present and 0":
+	// when absent we always write (even 0) so the field is created, matching
+	// the prior unconditional behaviour; only a present, equal value is
+	// skipped.
+	currentValue, hasCurrent := extensions.Page.Source.IntForPath(extensions.Config.TotalInWindow.Mapping)
+	if hasCurrent && total == currentValue {
 		return json, nil
 	}
 

@@ -355,4 +355,44 @@ func TestAddTotalInWindow(t *testing.T) {
 			t.Errorf("expected %s but got %s", expected, result)
 		}
 	})
+
+	// First-time zero: total is 0 and the mapping field does not yet exist.
+	// The existence check (hasCurrent) must let this through so the field is
+	// created at 0 — distinguishing "absent" from "present and 0". Without it
+	// the guard would read the absent field as 0, match total, and skip,
+	// silently never materialising the field.
+	t.Run("writes first-time zero when field absent", func(t *testing.T) {
+		ext := makeExtensions("48h", "private.totalInFirst48h", 0, "2026-03-02T09:00:00Z")
+		result, err := AddTotalInWindow(ext, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		expected := `{"data":{"private":{"totalInFirst48h":0}}}`
+		if result != expected {
+			t.Errorf("expected field created at 0 (%s) but got %s", expected, result)
+		}
+	})
+
+	// Once a 0 has been stored, a repeat in-window event with total still 0
+	// is a no-op — the field is present and equal, so the guard skips.
+	t.Run("skips when stored zero unchanged", func(t *testing.T) {
+		ext := FundraiserExtensions{
+			Config: FundraiserExtensionsConfig{
+				TotalInWindow: TotalInWindow{Window: "48h", Mapping: "private.totalInFirst48h"},
+			},
+			Page: FundraisingPage{
+				Source: Source{
+					data: gjson.Parse(fmt.Sprintf(`{"createdAt": %q, "total": 0, "private": {"totalInFirst48h": 0}}`, profileCreatedAt)),
+				},
+			},
+			EventCreatedAt: "2026-03-02T09:00:00Z",
+		}
+		result, err := AddTotalInWindow(ext, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if result != "" {
+			t.Errorf("expected no write (stored 0 unchanged) but got %s", result)
+		}
+	})
 }
