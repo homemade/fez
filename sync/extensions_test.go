@@ -309,4 +309,50 @@ func TestAddTotalInWindow(t *testing.T) {
 			t.Errorf("expected empty result but got %s", result)
 		}
 	})
+
+	// Skip-if-unchanged guard: when the stored mapping value already equals
+	// total, no write is produced — so repeated in-window events for the same
+	// profile don't keep the payload non-empty (the write-storm amplification).
+	t.Run("skips when value unchanged", func(t *testing.T) {
+		ext := FundraiserExtensions{
+			Config: FundraiserExtensionsConfig{
+				TotalInWindow: TotalInWindow{Window: "48h", Mapping: "private.totalInFirst48h"},
+			},
+			Page: FundraisingPage{
+				Source: Source{
+					data: gjson.Parse(fmt.Sprintf(`{"createdAt": %q, "total": 5000, "private": {"totalInFirst48h": 5000}}`, profileCreatedAt)),
+				},
+			},
+			EventCreatedAt: "2026-03-02T09:00:00Z",
+		}
+		result, err := AddTotalInWindow(ext, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if result != "" {
+			t.Errorf("expected no write (value unchanged) but got %s", result)
+		}
+	})
+
+	t.Run("writes when value changed", func(t *testing.T) {
+		ext := FundraiserExtensions{
+			Config: FundraiserExtensionsConfig{
+				TotalInWindow: TotalInWindow{Window: "48h", Mapping: "private.totalInFirst48h"},
+			},
+			Page: FundraisingPage{
+				Source: Source{
+					data: gjson.Parse(fmt.Sprintf(`{"createdAt": %q, "total": 5000, "private": {"totalInFirst48h": 4000}}`, profileCreatedAt)),
+				},
+			},
+			EventCreatedAt: "2026-03-02T09:00:00Z",
+		}
+		result, err := AddTotalInWindow(ext, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		expected := `{"data":{"private":{"totalInFirst48h":5000}}}`
+		if result != expected {
+			t.Errorf("expected %s but got %s", expected, result)
+		}
+	})
 }

@@ -222,6 +222,18 @@ func AddTotalInWindow(extensions FundraiserExtensions, json string) (string, err
 	}
 
 	total, _ := extensions.Page.Source.IntForPath("total")
+
+	// Skip-if-unchanged: only write when the value differs from what's
+	// already stored, matching the other writers in this file (streaks and
+	// split totals both guard their sjson.Set the same way). Writing
+	// unconditionally keeps the returned payload non-empty on every in-window
+	// event, so an upstream event flood for one profile is amplified into a
+	// write storm instead of collapsing to no-ops once the value has settled.
+	currentValue, _ := extensions.Page.Source.IntForPath(extensions.Config.TotalInWindow.Mapping)
+	if total == currentValue {
+		return json, nil
+	}
+
 	result, err := sjson.Set(json, "data."+extensions.Config.TotalInWindow.Mapping, total)
 	if err != nil {
 		return json, err
