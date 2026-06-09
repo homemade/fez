@@ -24,10 +24,10 @@ type Config struct {
 	TeamFieldMappings         struct {
 		Custom FieldMappings
 	}
-	TeamFieldTransforms       map[string]string
+	TeamFieldTransforms             map[string]string
 	FundraiserReferralFieldMappings RaiselyMessageMappings `yaml:"fundraiserReferralFieldMappings"`
-	FundraiserExtensions      FundraiserExtensionsConfig
-	TeamExtensions            TeamExtensionsConfig
+	FundraiserExtensions            FundraiserExtensionsConfig
+	TeamExtensions                  TeamExtensionsConfig
 }
 
 // RaiselyMessageMappings is the pass-through field map for a Raisely
@@ -48,15 +48,17 @@ type APISettings struct {
 	}
 	// Settings contains extra API values needed for syncing.
 	Settings struct {
-		OrttoActivityID              string   `yaml:"orttoActivityId"` // Required if Target is "ortto-activities" (Ortto Activities API)
-		OrttoFundraiserSnapshotField string   `yaml:"orttoFundraiserSnapshotField"`
-		OrttoFundraiserMergeField              string   `yaml:"orttoFundraiserMergeField"`              // Required if Target is "ortto-activities" (Ortto Activities API)
-		OrttoActivityAdditionalPersonFields    []string `yaml:"orttoActivityAdditionalPersonFields"`    // Additional fields to treat as person fields (ortto-activities target)
-		RaiselyWebhookEvents                   []string `yaml:"raiselyWebhookEvents"`
-		RaiselyFundraiserReferralsField        string   `yaml:"raiselyFundraiserReferralsField"` // Raisely profile field path containing the referrals JSON array
+		OrttoActivityID                     string   `yaml:"orttoActivityId"` // Required if Target is "ortto-activities" (Ortto Activities API)
+		OrttoFundraiserSnapshotField        string   `yaml:"orttoFundraiserSnapshotField"`
+		OrttoFundraiserMergeField           string   `yaml:"orttoFundraiserMergeField"`           // Required if Target is "ortto-activities" (Ortto Activities API)
+		OrttoActivityAdditionalPersonFields []string `yaml:"orttoActivityAdditionalPersonFields"` // Additional fields to treat as person fields (ortto-activities target)
+		RaiselyWebhookEvents                []string `yaml:"raiselyWebhookEvents"`
+		RaiselyFundraiserReferralsField     string   `yaml:"raiselyFundraiserReferralsField"` // Raisely profile field path containing the referrals JSON array
 	}
 	Endpoints struct {
-		Ortto string
+		Ortto           string
+		Raisely         string
+		RaiselyMessages string `yaml:"raiselyMessages"`
 	}
 }
 

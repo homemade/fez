@@ -16,10 +16,10 @@ import (
 )
 
 const (
-	FundraisingProfilesSinceTimestampFormat        = "2006-01-02T15:04:05.999"
-	FundraisingProfilesSinceLimit                  = "1000"
-	FundraisingProfileExerciseLogsLimit            = "1000"
-	FundraisingProfileDonationsLimit               = "1000"
+	FundraisingProfilesSinceTimestampFormat = "2006-01-02T15:04:05.999"
+	FundraisingProfilesSinceLimit           = "1000"
+	FundraisingProfileExerciseLogsLimit     = "1000"
+	FundraisingProfileDonationsLimit        = "1000"
 )
 
 var cachedFundraisingCampaigns gosync.Map // map[string]*FundraisingCampaign
@@ -411,14 +411,10 @@ func (r *RaiselyFetcherAndUpdater) RaiselyAPIKey() string {
 	return r.Config.API.Keys.Raisely
 }
 
-// raiselyAPIBaseURL is the base URL for the main Raisely API.
-// Overridable in tests.
-var raiselyAPIBaseURL = "https://api.raisely.com"
-
 // RaiselyAPIBuilder returns a new requests.Builder configured for the Raisely API.
 func (r *RaiselyFetcherAndUpdater) RaiselyAPIBuilder() *requests.Builder {
 	apiBuilder := requests.
-		URL(raiselyAPIBaseURL).
+		URL(r.Config.API.Endpoints.Raisely).
 		Client(&http.Client{Timeout: HTTPRequestTimeout})
 	if r.RecordRequests {
 		apiBuilder = apiBuilder.Transport(requests.Record(nil, fmt.Sprintf("pkg/testdata/.requests/%s/raisely", r.Campaign)))
@@ -620,16 +616,11 @@ type raiselyCustomMessagePayload struct {
 	Custom map[string]interface{} `json:"custom,omitempty"`
 }
 
-// raiselyMessagesAPIBaseURL is the base URL for the Raisely Custom
-// Messages API. Overridable in tests.
-var raiselyMessagesAPIBaseURL = "https://communications.raisely.com"
-
 // RaiselyMessagesAPIBuilder returns a new requests.Builder configured for
-// the Raisely Custom Messages API (separate host from the main Raisely
-// API).
+// the Raisely Custom Messages API (separate host from the main Raisely API).
 func (r *RaiselyFetcherAndUpdater) RaiselyMessagesAPIBuilder() *requests.Builder {
 	apiBuilder := requests.
-		URL(raiselyMessagesAPIBaseURL).
+		URL(r.Config.API.Endpoints.RaiselyMessages).
 		Client(&http.Client{Timeout: HTTPRequestTimeout})
 	if r.RecordRequests {
 		apiBuilder = apiBuilder.Transport(requests.Record(nil, fmt.Sprintf("pkg/testdata/.requests/%s/raisely-messages", r.Campaign)))

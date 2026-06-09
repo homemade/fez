@@ -9,24 +9,21 @@ import (
 	"testing"
 )
 
-// newTestRaiselyMessagesServer spins up an httptest server that captures
-// the inbound request and points raiselyMessagesAPIBaseURL at it for the
-// duration of the test.
+// newTestRaiselyMessagesServer spins up an httptest server that captures the
+// inbound request. Point a fetcher at it by setting
+// Config.API.Endpoints.RaiselyMessages to the returned server's URL (see
+// newTestRaiselyFetcher).
 func newTestRaiselyMessagesServer(t *testing.T, handler http.HandlerFunc) *httptest.Server {
 	t.Helper()
 	server := httptest.NewServer(handler)
-	originalURL := raiselyMessagesAPIBaseURL
-	raiselyMessagesAPIBaseURL = server.URL
-	t.Cleanup(func() {
-		raiselyMessagesAPIBaseURL = originalURL
-		server.Close()
-	})
+	t.Cleanup(server.Close)
 	return server
 }
 
-func newTestRaiselyFetcher(apiKey string) *RaiselyFetcherAndUpdater {
+func newTestRaiselyFetcher(apiKey, messagesURL string) *RaiselyFetcherAndUpdater {
 	config := Config{}
 	config.API.Keys.Raisely = apiKey
+	config.API.Endpoints.RaiselyMessages = messagesURL
 	return &RaiselyFetcherAndUpdater{SyncContext: &SyncContext{Config: config, Campaign: "test-campaign"}}
 }
 
@@ -35,7 +32,7 @@ func TestSendCustomMessage_PayloadShape(t *testing.T) {
 	var capturedAuth string
 	var capturedBody map[string]interface{}
 
-	newTestRaiselyMessagesServer(t, func(w http.ResponseWriter, r *http.Request) {
+	server := newTestRaiselyMessagesServer(t, func(w http.ResponseWriter, r *http.Request) {
 		capturedPath = r.URL.Path
 		capturedAuth = r.Header.Get("Authorization")
 		body, _ := io.ReadAll(r.Body)
@@ -44,7 +41,7 @@ func TestSendCustomMessage_PayloadShape(t *testing.T) {
 		_, _ = w.Write([]byte(`{}`))
 	})
 
-	fetcher := newTestRaiselyFetcher("test-key-123")
+	fetcher := newTestRaiselyFetcher("test-key-123", server.URL)
 	err := fetcher.SendCustomMessage(RaiselyCustomMessageRequest{
 		Source: "campaign:abc-def-123",
 		User: map[string]interface{}{
@@ -111,13 +108,13 @@ func TestSendCustomMessage_PayloadShape(t *testing.T) {
 func TestSendCustomMessage_OmitsEmptyCustom(t *testing.T) {
 	var capturedBody map[string]interface{}
 
-	newTestRaiselyMessagesServer(t, func(w http.ResponseWriter, r *http.Request) {
+	server := newTestRaiselyMessagesServer(t, func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
 		_ = json.Unmarshal(body, &capturedBody)
 		w.WriteHeader(http.StatusOK)
 	})
 
-	fetcher := newTestRaiselyFetcher("k")
+	fetcher := newTestRaiselyFetcher("k", server.URL)
 	err := fetcher.SendCustomMessage(RaiselyCustomMessageRequest{
 		Source: "campaign:c1",
 		User:   map[string]interface{}{"email": "a@b.c"},
@@ -133,12 +130,12 @@ func TestSendCustomMessage_OmitsEmptyCustom(t *testing.T) {
 }
 
 func TestSendCustomMessage_NonSuccessIsError(t *testing.T) {
-	newTestRaiselyMessagesServer(t, func(w http.ResponseWriter, r *http.Request) {
+	server := newTestRaiselyMessagesServer(t, func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
 		_, _ = w.Write([]byte(`{"error":"bad request"}`))
 	})
 
-	fetcher := newTestRaiselyFetcher("k")
+	fetcher := newTestRaiselyFetcher("k", server.URL)
 	err := fetcher.SendCustomMessage(RaiselyCustomMessageRequest{
 		Source: "campaign:c1",
 		User:   map[string]interface{}{"email": "a@b.c"},

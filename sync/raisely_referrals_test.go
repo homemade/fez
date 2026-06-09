@@ -338,7 +338,7 @@ func TestProcessReferrals_PartialFailure(t *testing.T) {
 	failingEmails := map[string]bool{"fail@example.com": true}
 
 	// Raisely Messages mock — captures sends and fails the marked email.
-	newTestRaiselyMessagesServer(t, func(w http.ResponseWriter, r *http.Request) {
+	messagesServer := newTestRaiselyMessagesServer(t, func(w http.ResponseWriter, r *http.Request) {
 		var body map[string]interface{}
 		_ = json.NewDecoder(r.Body).Decode(&body)
 		data := body["data"].(map[string]interface{})
@@ -361,12 +361,10 @@ func TestProcessReferrals_PartialFailure(t *testing.T) {
 	}))
 	t.Cleanup(raiselyAPI.Close)
 
-	originalAPIBase := raiselyAPIBaseURL
-	raiselyAPIBaseURL = raiselyAPI.URL
-	t.Cleanup(func() { raiselyAPIBaseURL = originalAPIBase })
-
 	sc := &SyncContext{Campaign: "test-campaign"}
 	sc.Config.API.Keys.Raisely = "k"
+	sc.Config.API.Endpoints.Raisely = raiselyAPI.URL
+	sc.Config.API.Endpoints.RaiselyMessages = messagesServer.URL
 	svc := &Service{sc: sc, fetcher: &RaiselyFetcherAndUpdater{SyncContext: sc}}
 
 	batch := &ReferralBatch{
@@ -427,7 +425,7 @@ func TestProcessReferrals_PartialFailure(t *testing.T) {
 }
 
 func TestProcessReferrals_AllSuccess(t *testing.T) {
-	newTestRaiselyMessagesServer(t, func(w http.ResponseWriter, r *http.Request) {
+	messagesServer := newTestRaiselyMessagesServer(t, func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
 
@@ -438,12 +436,10 @@ func TestProcessReferrals_AllSuccess(t *testing.T) {
 	}))
 	t.Cleanup(raiselyAPI.Close)
 
-	originalAPIBase := raiselyAPIBaseURL
-	raiselyAPIBaseURL = raiselyAPI.URL
-	t.Cleanup(func() { raiselyAPIBaseURL = originalAPIBase })
-
 	sc := &SyncContext{Campaign: "test-campaign"}
 	sc.Config.API.Keys.Raisely = "k"
+	sc.Config.API.Endpoints.Raisely = raiselyAPI.URL
+	sc.Config.API.Endpoints.RaiselyMessages = messagesServer.URL
 	svc := &Service{sc: sc, fetcher: &RaiselyFetcherAndUpdater{SyncContext: sc}}
 
 	batch := &ReferralBatch{
