@@ -13,7 +13,17 @@ import (
 type Config struct {
 	// Target identifies the integration target (e.g., "", "ortto-contacts", "ortto-activities").
 	// Empty string indicates legacy files which default to ortto-contacts behavior.
-	Target                  string // NOTE: Set from the mapping file name suffix NOT the YAML content
+	Target string // NOTE: Set from the mapping file name suffix NOT the YAML content
+
+	// EnvVar describes the source of this Config — the env var Name (empty
+	// for JSON loads), Path (the MAPPING_PATH value, e.g. "ACME/CAMPAIGN_V001"),
+	// UUID (the campaign UUID), and the raw Config map. Populated by every
+	// LoadCampaignConfig* path; consumers derive the org / label segments
+	// via EnvVar.Org() / EnvVar.Label() without re-scanning the environment.
+	// The parsed Config struct fields are authoritative for typed access; this
+	// field is the "where was this loaded from" provenance.
+	EnvVar CampaignEnvVar
+
 	API                     APISettings
 	CampaignPrefix          string
 	FundraiserFieldMappings struct {

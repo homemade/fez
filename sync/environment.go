@@ -24,17 +24,17 @@ func ConfigWithCRMFieldMapper(mapper CRMFieldMapper) ConfigOption {
 }
 
 // FindCampaignEnvVar scans environment variables for a JSON value containing
-// a campaignUUIDKey key matching the given campaignUUID.
+// a campaignUUIDKey key matching the given campaignUUID and returns the full
+// CampaignEnvVar (Name, Path, UUID, parsed Config map).
+//
 // The campaignUUIDKey parameter specifies the JSON key to look for
 // (e.g. "RAISELY_CAMPAIGN_UUID" for the Raisely2Ortto flavour).
-// Returns the env var name and the MAPPING_PATH value.
-// Returns an error if multiple env vars match the same UUID, or if MAPPING_PATH is missing.
-func FindCampaignEnvVar(campaignUUIDKey string, campaignUUID string) (envVarName string, mappingPath string, err error) {
-	type match struct {
-		name string
-		path string
-	}
-	var matches []match
+//
+// Returns a zero CampaignEnvVar with nil error if no env var matches.
+// Returns an error if multiple env vars match the same UUID, or if MAPPING_PATH
+// is missing.
+func FindCampaignEnvVar(campaignUUIDKey string, campaignUUID string) (CampaignEnvVar, error) {
+	var matches []CampaignEnvVar
 
 	for _, env := range os.Environ() {
 		parts := strings.SplitN(env, "=", 2)
@@ -49,7 +49,7 @@ func FindCampaignEnvVar(campaignUUIDKey string, campaignUUID string) (envVarName
 
 		var m map[string]string
 		if err := json.Unmarshal([]byte(value), &m); err != nil {
-			return "", "", fmt.Errorf("env var %q has %s prefix but contains invalid JSON: %w", name, CampaignEnvVarPrefix, err)
+			return CampaignEnvVar{}, fmt.Errorf("env var %q has %s prefix but contains invalid JSON: %w", name, CampaignEnvVarPrefix, err)
 		}
 
 		uuid, ok := m[campaignUUIDKey]
@@ -59,24 +59,24 @@ func FindCampaignEnvVar(campaignUUIDKey string, campaignUUID string) (envVarName
 
 		p, ok := m["MAPPING_PATH"]
 		if !ok || p == "" {
-			return "", "", fmt.Errorf("env var %q contains %s but is missing MAPPING_PATH", name, campaignUUIDKey)
+			return CampaignEnvVar{}, fmt.Errorf("env var %q contains %s but is missing MAPPING_PATH", name, campaignUUIDKey)
 		}
 
-		matches = append(matches, match{name: name, path: p})
+		matches = append(matches, CampaignEnvVar{Name: name, Path: p, UUID: uuid, Config: m})
 	}
 
 	if len(matches) == 0 {
-		return "", "", nil
+		return CampaignEnvVar{}, nil
 	}
 	if len(matches) > 1 {
 		names := make([]string, len(matches))
 		for i, m := range matches {
-			names[i] = m.name
+			names[i] = m.Name
 		}
-		return "", "", fmt.Errorf("found multiple env vars with %s %q: %s", campaignUUIDKey, campaignUUID, strings.Join(names, ", "))
+		return CampaignEnvVar{}, fmt.Errorf("found multiple env vars with %s %q: %s", campaignUUIDKey, campaignUUID, strings.Join(names, ", "))
 	}
 
-	return matches[0].name, matches[0].path, nil
+	return matches[0], nil
 }
 
 // campaignUUIDKeyForFlavour returns the JSON key used to identify campaign UUIDs
@@ -149,15 +149,15 @@ func LoadCampaignConfigFromEnvironment(embeddedMappings EmbeddedMappings, campai
 	if err != nil {
 		return Config{}, err
 	}
-	envVarName, mappingPath, err := FindCampaignEnvVar(campaignUUIDKey, campaign)
+	envVar, err := FindCampaignEnvVar(campaignUUIDKey, campaign)
 	if err != nil {
 		return Config{}, fmt.Errorf("failed to find campaign env var %w", err)
 	}
-	if envVarName == "" {
+	if envVar.Name == "" {
 		return Config{}, fmt.Errorf("no env var found with %s %q", campaignUUIDKey, campaign)
 	}
 
-	return loadCampaignConfig(embeddedMappings, mappingPath, JSONCompositeEnvVar{Parent: envVarName}, options.crmFieldMapper)
+	return loadCampaignConfig(embeddedMappings, envVar, JSONCompositeEnvVar{Parent: envVar.Name}, options.crmFieldMapper)
 }
 
 // MapCompositeEnvVar implements CompositeEnvVar using an in-memory map.
@@ -189,16 +189,33 @@ func LoadCampaignConfigFromJSON(embeddedMappings EmbeddedMappings, configJSON ma
 		return Config{}, fmt.Errorf("MAPPING_PATH is required")
 	}
 
-	return loadCampaignConfig(embeddedMappings, mappingPath, MapCompositeEnvVar{Values: configJSON}, options.crmFieldMapper)
+	// Synthesize a CampaignEnvVar from the provided JSON: there is no
+	// real underlying env var, so Name is empty. UUID is read via the
+	// flavour key when present (admin paths may omit it). Config carries
+	// the full input map so consumers retain access to extra keys.
+	campaignUUIDKey, err := campaignUUIDKeyForFlavour(GetInitialisedFlavour())
+	if err != nil {
+		return Config{}, err
+	}
+	envVar := CampaignEnvVar{
+		Name:   "",
+		Path:   mappingPath,
+		UUID:   configJSON[campaignUUIDKey],
+		Config: configJSON,
+	}
+
+	return loadCampaignConfig(embeddedMappings, envVar, MapCompositeEnvVar{Values: configJSON}, options.crmFieldMapper)
 }
 
 // loadCampaignConfig is the shared file-load + unmarshal + validation
 // pipeline used by both LoadCampaignConfigFromEnvironment and
 // LoadCampaignConfigFromJSON. Callers only differ in how they resolve
-// mappingPath and which CompositeEnvVar implementation supplies config
-// values.
-func loadCampaignConfig(embeddedMappings EmbeddedMappings, mappingPath string, compositeEnvVar CompositeEnvVar, crmFieldMapper CRMFieldMapper) (Config, error) {
+// envVar and which CompositeEnvVar implementation supplies config
+// values. The CampaignEnvVar is stamped onto the result as Config.EnvVar
+// so consumers can derive org/label without re-scanning the environment.
+func loadCampaignConfig(embeddedMappings EmbeddedMappings, envVar CampaignEnvVar, compositeEnvVar CompositeEnvVar, crmFieldMapper CRMFieldMapper) (Config, error) {
 	var result Config
+	mappingPath := envVar.Path
 
 	campaignMappingFile, target, err := embeddedMappings.MustFindFirstCampaignMappingFileWithTargetByPath(mappingPath)
 	if err != nil {
@@ -232,6 +249,7 @@ func loadCampaignConfig(embeddedMappings EmbeddedMappings, mappingPath string, c
 	}
 
 	result.Target = target
+	result.EnvVar = envVar
 
 	// Validate: if referrals trigger is set, the companion file is required.
 	if result.API.Settings.RaiselyFundraiserReferralsField != "" && referralsCompanionFile.Length == 0 {
