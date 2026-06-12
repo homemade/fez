@@ -75,14 +75,11 @@ func (em EmbeddedMappings) MustFindDefaultsMappingFileForTarget(target string) (
 // Filename format: <LABEL>[.<target>].yaml
 // Returns the mapping file, the target, and any error.
 func (em EmbeddedMappings) MustFindFirstCampaignMappingFileWithTargetByPath(mappingpath string) (result MappingFile, target string, err error) {
-	// Split path into org directory and file label
-	// e.g. "ORG/LABEL" → dir: "<root>/ORG", fileLabel: "LABEL"
-	index := strings.LastIndex(mappingpath, "/")
-	if index == -1 {
-		return result, target, fmt.Errorf("invalid mapping path %q: must contain org directory (e.g. ORG/LABEL)", mappingpath)
+	orgDir, fileLabel, err := ParseMappingPath(mappingpath)
+	if err != nil {
+		return result, target, err
 	}
-	dir := path.Join(em.Root, mappingpath[:index])
-	fileLabel := mappingpath[index+1:]
+	dir := path.Join(em.Root, orgDir)
 
 	var files []fs.DirEntry
 	files, err = em.Files.ReadDir(dir)
@@ -151,12 +148,11 @@ var knownTargets = map[string]bool{
 // exist (the companion is optional).
 func (em EmbeddedMappings) FindReferralsCompanionMappingFileByPath(mappingpath, target string) (MappingFile, error) {
 	var result MappingFile
-	index := strings.LastIndex(mappingpath, "/")
-	if index == -1 {
-		return result, fmt.Errorf("invalid mapping path %q: must contain org directory (e.g. ORG/LABEL)", mappingpath)
+	orgDir, label, err := ParseMappingPath(mappingpath)
+	if err != nil {
+		return result, err
 	}
-	dir := path.Join(em.Root, mappingpath[:index])
-	label := mappingpath[index+1:]
+	dir := path.Join(em.Root, orgDir)
 
 	companionName := label + ".referrals.yaml"
 	if target != "" {

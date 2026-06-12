@@ -165,12 +165,11 @@ func LoadCSVEnrichmentMapping(mappings EmbeddedMappings, mappingPath string, pur
 // "<mappingPath>.<purpose>.ortto-activities.yaml".
 // Returns an empty slice (and no error) if the org directory has no matching files.
 func ListCSVEnrichmentPurposes(mappings EmbeddedMappings, mappingPath string) ([]string, error) {
-	index := strings.LastIndex(mappingPath, "/")
-	if index == -1 {
-		return nil, fmt.Errorf("invalid mapping path %q: must contain org directory (e.g. ORG/LABEL)", mappingPath)
+	orgDir, label, err := ParseMappingPath(mappingPath)
+	if err != nil {
+		return nil, err
 	}
-	dir := path.Join(mappings.Root, mappingPath[:index])
-	label := mappingPath[index+1:]
+	dir := path.Join(mappings.Root, orgDir)
 
 	entries, err := mappings.Files.ReadDir(dir)
 	if err != nil {
