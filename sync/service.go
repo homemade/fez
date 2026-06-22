@@ -41,8 +41,9 @@ type Service struct {
 
 // serviceOptions holds optional configuration for NewService.
 type serviceOptions struct {
-	recordRequests bool
-	debug          bool
+	recordRequests           bool
+	debug                    bool
+	fundraisingCampaignCache FundraisingCampaignCache
 }
 
 // ServiceOption is a functional option for configuring NewService.
@@ -62,6 +63,18 @@ func ServiceWithDebug() ServiceOption {
 	}
 }
 
+// ServiceWithFundraisingCampaignCache supplies a [FundraisingCampaignCache]
+// for the service's [RaiselyFetcherAndUpdater]. A nil cache (or omitting
+// this option entirely) means no caching at all — every
+// CachedFundraisingCampaign call fetches directly from Raisely. Consumers
+// that construct a RaiselyFetcherAndUpdater directly (without going
+// through NewService) set the field on the struct literal instead.
+func ServiceWithFundraisingCampaignCache(c FundraisingCampaignCache) ServiceOption {
+	return func(o *serviceOptions) {
+		o.fundraisingCampaignCache = c
+	}
+}
+
 // NewService creates a Service for the given campaign configuration.
 func NewService(config Config, campaignID string, trigger TriggerInfo, opts ...ServiceOption) *Service {
 	var o serviceOptions
@@ -76,8 +89,11 @@ func NewService(config Config, campaignID string, trigger TriggerInfo, opts ...S
 		TriggerInfo:    trigger,
 	}
 	return &Service{
-		sc:      sc,
-		fetcher: &RaiselyFetcherAndUpdater{SyncContext: sc},
+		sc: sc,
+		fetcher: &RaiselyFetcherAndUpdater{
+			SyncContext:              sc,
+			FundraisingCampaignCache: o.fundraisingCampaignCache,
+		},
 	}
 }
 

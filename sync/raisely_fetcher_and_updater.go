@@ -22,8 +22,6 @@ const (
 	FundraisingProfileDonationsLimit        = "1000"
 )
 
-var cachedFundraisingCampaigns gosync.Map // map[string]*FundraisingCampaign
-
 type fetchRaiselyDataParams struct {
 	RaiselyAPIKey     string
 	P2PID             string
@@ -357,8 +355,20 @@ func (d *FundraisingProfileExerciseLogs) fetchRaiselyData(params fetchRaiselyDat
 
 // RaiselyFetcherAndUpdater handles fetching data from the Raisely API.
 // It embeds *SyncContext for shared sync configuration.
+//
+// FundraisingCampaignCache is an optional cross-call cache for
+// FundraisingCampaign documents — see [FundraisingCampaignCache] for the
+// interface and [CachedFundraisingCampaign] for the orchestration. nil
+// means no caching at all: every CachedFundraisingCampaign call fetches
+// directly from Raisely.
 type RaiselyFetcherAndUpdater struct {
 	*SyncContext
+
+	// FundraisingCampaignCache supplies cross-call cache state for
+	// CachedFundraisingCampaign. Set on construction (via
+	// [ServiceWithFundraisingCampaignCache] or directly on a struct
+	// literal); nil disables caching.
+	FundraisingCampaignCache FundraisingCampaignCache
 }
 
 // FetchFundraisingCampaign fetches the campaign data from Raisely.
@@ -371,26 +381,40 @@ func (r *RaiselyFetcherAndUpdater) FetchFundraisingCampaign(p2pID string, ctx co
 	return campaign, nil
 }
 
-// CachedFundraisingCampaign fetches and caches the fundraising campaign data from Raisely.
-// Thread-safe: uses sync.Map keyed by campaign ID.
+// CachedFundraisingCampaign returns the campaign data for p2pID, consulting
+// the configured [FundraisingCampaignCache] when present. With no cache
+// configured (FundraisingCampaignCache == nil) every call fetches from
+// Raisely. With a cache, refresh=false consults Get first and on miss
+// falls through to Raisely + best-effort Set; refresh=true bypasses Get
+// (write-through fetch + Set). A Raisely fetch error is returned to the
+// caller; there is no stale fallback.
+// Backing-store errors fail open: Get errors are logged
+// and treated as a miss; Set errors are logged and the fresh value is
+// returned regardless.
 func (r *RaiselyFetcherAndUpdater) CachedFundraisingCampaign(p2pID string, refresh bool, ctx context.Context) (*FundraisingCampaign, error) {
+	cache := r.FundraisingCampaignCache
+	if cache == nil {
+		return r.FetchFundraisingCampaign(p2pID, ctx)
+	}
+
 	if !refresh {
-		if v, ok := cachedFundraisingCampaigns.Load(p2pID); ok {
-			return v.(*FundraisingCampaign), nil
+		hit, ok, err := cache.Get(ctx, p2pID)
+		if err != nil {
+			log.Printf("FundraisingCampaignCache.Get(%s): %v (treating as miss)", p2pID, err)
+		} else if ok {
+			return hit, nil
 		}
 	}
 
-	fundraisingCampaign, err := r.FetchFundraisingCampaign(p2pID, ctx)
+	fresh, err := r.FetchFundraisingCampaign(p2pID, ctx)
 	if err != nil {
-		// On error, fall back to cached value if available
-		if v, ok := cachedFundraisingCampaigns.Load(p2pID); ok {
-			return v.(*FundraisingCampaign), nil
-		}
 		return nil, err
 	}
 
-	cachedFundraisingCampaigns.Store(p2pID, fundraisingCampaign)
-	return fundraisingCampaign, nil
+	if err := cache.Set(ctx, p2pID, r.Config.EnvVar.Org(), fresh); err != nil {
+		log.Printf("FundraisingCampaignCache.Set(%s): %v (continuing)", p2pID, err)
+	}
+	return fresh, nil
 }
 
 // FundraiserData holds the fetched data for a single fundraiser.
