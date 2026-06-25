@@ -436,14 +436,71 @@ func (r *RaiselyFetcherAndUpdater) RaiselyAPIKey() string {
 }
 
 // RaiselyAPIBuilder returns a new requests.Builder configured for the Raisely API.
+//
+// Layered behaviours mirror [OrttoFetcherAndUpdater.OrttoAPIBuilder]:
+//
+//   - **Distinct outbound User-Agent** — set from [SyncContext.UserAgent]
+//     (falling back to [DefaultUserAgent]). Identifies the consumer to
+//     Raisely + their edge layer; load-bearing for incident communication
+//     where the operator filters edge logs by UA.
+//   - **Per-call attribution log line** — `Raisely call: source=<TriggerType>
+//     ua=<User-Agent> path=… status=…`. A grep on `Raisely call:` recovers
+//     the exact UA we were sending at any moment in our own logs.
+//   - **429 detection** — a 429 response is surfaced as
+//     [*RaiselyRateLimitError] so callers can [IsRateLimited] and
+//     branch (defer/ack instead of 500, place a tenant-scoped hold).
+//     No body / `Retry-After` to parse — Raisely's 429s originate at
+//     a Cloudflare edge layer that exposes neither — so the typed
+//     error just carries the status code + captured response headers
+//     for incident attribution. No `runtime.Callers` stack (Cloudflare
+//     opacity reduces its value vs the Ortto side).
 func (r *RaiselyFetcherAndUpdater) RaiselyAPIBuilder() *requests.Builder {
 	apiBuilder := requests.
 		URL(r.Config.API.Endpoints.Raisely).
-		Client(&http.Client{Timeout: HTTPRequestTimeout})
+		UserAgent(r.userAgent()).
+		Client(&http.Client{Timeout: HTTPRequestTimeout}).
+		AddValidator(raiselyCallValidator(r.TriggerType))
 	if r.RecordRequests {
 		apiBuilder = apiBuilder.Transport(requests.Record(nil, fmt.Sprintf("pkg/testdata/.requests/%s/raisely", r.Campaign)))
 	}
 	return apiBuilder
+}
+
+// raiselyCallValidator is the validator added to every Raisely request
+// by [RaiselyFetcherAndUpdater.RaiselyAPIBuilder] (and its Custom
+// Messages sibling). It does two jobs:
+//
+//  1. Emits a one-line per-call attribution log
+//     `Raisely call: source=<triggerType> ua=<User-Agent> path=… status=…`
+//     — `ua=` is pulled from the outbound request header so the value
+//     downstream / edge logs see is recorded verbatim. Load-bearing
+//     for incident communication where the operator filters edge logs
+//     by UA.
+//  2. Intercepts 429 responses and returns [*RaiselyRateLimitError]
+//     (with captured response headers), so callers can [IsRateLimited]
+//     without re-parsing. No body / `Retry-After` to read — Raisely's
+//     429s come from a Cloudflare edge layer that exposes neither.
+//
+// Non-429 responses (success or other errors) fall through with `nil`
+// — the caller's existing `.ErrorJSON(…)` / `.ToJSON(…)` chain handles
+// success bodies and non-rate-limit errors.
+func raiselyCallValidator(triggerType string) requests.ResponseHandler {
+	return func(resp *http.Response) error {
+		logAPICall("Raisely", triggerType, resp)
+
+		if resp.StatusCode != http.StatusTooManyRequests {
+			return nil
+		}
+
+		// 429: surface the typed error with the captured response
+		// headers. No body parse — Raisely's edge 429s are empty;
+		// any reuse-as-a-decoded-error attempt would just race the
+		// downstream `.ErrorJSON` chain for no signal.
+		return &RaiselyRateLimitError{
+			StatusCode:      resp.StatusCode,
+			ResponseHeaders: resp.Header.Clone(),
+		}
+	}
 }
 
 // fetchParams builds fetchRaiselyDataParams for a given P2P ID and context.
@@ -642,10 +699,14 @@ type raiselyCustomMessagePayload struct {
 
 // RaiselyMessagesAPIBuilder returns a new requests.Builder configured for
 // the Raisely Custom Messages API (separate host from the main Raisely API).
+// Carries the same UA + per-call attribution log machinery as
+// [RaiselyFetcherAndUpdater.RaiselyAPIBuilder].
 func (r *RaiselyFetcherAndUpdater) RaiselyMessagesAPIBuilder() *requests.Builder {
 	apiBuilder := requests.
 		URL(r.Config.API.Endpoints.RaiselyMessages).
-		Client(&http.Client{Timeout: HTTPRequestTimeout})
+		UserAgent(r.userAgent()).
+		Client(&http.Client{Timeout: HTTPRequestTimeout}).
+		AddValidator(raiselyCallValidator(r.TriggerType))
 	if r.RecordRequests {
 		apiBuilder = apiBuilder.Transport(requests.Record(nil, fmt.Sprintf("pkg/testdata/.requests/%s/raisely-messages", r.Campaign)))
 	}

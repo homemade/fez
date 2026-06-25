@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"runtime"
 	"strings"
 	gosync "sync"
 	"time"
@@ -14,6 +15,38 @@ import (
 	"github.com/carlmjohnson/requests"
 	"github.com/iancoleman/strcase"
 )
+
+// orttoCallerStackDepth bounds how many call frames captureNonFezStack
+// walks. Deeper than the typical consumer → fez chain so a longer
+// path is still visible, capped to keep the captured string a small
+// fixed size.
+const orttoCallerStackDepth = 16
+
+// captureNonFezStack walks the call stack and returns a multi-line
+// string of the first frames whose file path is OUTSIDE this fez
+// module. Used to attribute a 429 error to its consumer-side caller.
+// Returns an empty string when no non-fez frames are found within
+// the depth bound.
+func captureNonFezStack() string {
+	const fezPathFragment = "github.com/homemade/fez/"
+	pcs := make([]uintptr, orttoCallerStackDepth)
+	n := runtime.Callers(2, pcs)
+	if n == 0 {
+		return ""
+	}
+	frames := runtime.CallersFrames(pcs[:n])
+	var b strings.Builder
+	for {
+		fr, more := frames.Next()
+		if !strings.Contains(fr.File, fezPathFragment) {
+			fmt.Fprintf(&b, "%s\n\t%s:%d\n", fr.Function, fr.File, fr.Line)
+		}
+		if !more {
+			break
+		}
+	}
+	return strings.TrimRight(b.String(), "\n")
+}
 
 const ActivityFeedConcurrencyLimit = 5
 
@@ -48,10 +81,33 @@ type OrttoFetcherAndUpdater struct {
 
 // OrttoAPIBuilder returns a new requests.Builder configured for the Ortto API.
 // The recording path uses Config.Target to distinguish between targets.
+//
+// Three behaviours are layered into every Ortto call this builder
+// produces:
+//
+//   - **Rate-limit detection** — a validator runs before ErrorJSON,
+//     intercepting 429 responses whose body carries the nested
+//     `{error:{code:"rate-limit",try-in-seconds:N}}` shape and
+//     returning [*OrttoRateLimitError] so callers can [IsRateLimited]
+//     / [RetryAfter] without re-parsing. Non-429 / non-rate-limit
+//     responses pass through to the caller's `ErrorJSON` chain.
+//   - **Caller attribution log line** — one line per call:
+//     `Ortto call: source=<TriggerType> path=… status=…`. Source comes
+//     from the bound [SyncContext.TriggerType], so a future grep on
+//     the line attributes the call back to its trigger (webhook /
+//     webhook-replay / cli-sync / etc.).
+//   - **Distinct User-Agent** — set from [SyncContext.UserAgent], with
+//     [DefaultUserAgent] as the fallback. Lets downstream operators
+//     (and our own edge-log queries) attribute traffic by release.
+//
+// The validator runs whether or not the per-call site chains
+// `.ErrorJSON(…)`; on a 2xx it returns nil and the chain continues.
 func (o OrttoFetcherAndUpdater) OrttoAPIBuilder() *requests.Builder {
 	result := requests.
 		URL(o.Config.API.Endpoints.Ortto).
-		Client(&http.Client{Timeout: HTTPRequestTimeout})
+		UserAgent(o.userAgent()).
+		Client(&http.Client{Timeout: HTTPRequestTimeout}).
+		AddValidator(orttoCallValidator(o.TriggerType))
 	if o.RecordRequests {
 		target := o.Config.Target
 		if target == "" {
@@ -60,6 +116,58 @@ func (o OrttoFetcherAndUpdater) OrttoAPIBuilder() *requests.Builder {
 		result = result.Transport(requests.Record(nil, fmt.Sprintf("pkg/testdata/.requests/%s/%s", o.Campaign, target)))
 	}
 	return result
+}
+
+// orttoCallValidator is the validator added to every Ortto request by
+// [OrttoFetcherAndUpdater.OrttoAPIBuilder]. It does two jobs:
+//
+//  1. Emits a one-line per-call attribution log
+//     `Ortto call: source=<triggerType> path=… status=…` so a future
+//     grep can attribute the call back to its trigger.
+//  2. Intercepts 429s whose body carries the nested rate-limit shape
+//     and returns [*OrttoRateLimitError] (with captured headers + a
+//     bounded runtime-callers stack), so callers can [IsRateLimited]
+//     / [RetryAfter] without re-parsing.
+//
+// Non-429 responses (success or other errors) fall through with `nil`
+// — the caller's `.ErrorJSON(&result.Error)` chain handles the
+// existing flat [OrttoError] decode for non-rate-limit failures.
+func orttoCallValidator(triggerType string) requests.ResponseHandler {
+	return func(resp *http.Response) error {
+		logAPICall("Ortto", triggerType, resp)
+
+		if resp.StatusCode != http.StatusTooManyRequests {
+			return nil
+		}
+
+		// 429: try to decode the nested rate-limit body. Peek the
+		// body so subsequent validators / handlers still see a
+		// readable reader when this isn't a rate-limit shape.
+		body, readErr := peekResponseBody(resp)
+		if readErr != nil {
+			return nil // body read failed; let downstream validators handle the 429
+		}
+
+		var decoded struct {
+			Error struct {
+				Code         string `json:"code"`
+				Message      string `json:"message"`
+				TryInSeconds int    `json:"try-in-seconds"`
+			} `json:"error"`
+		}
+		if json.Unmarshal(body, &decoded) != nil || decoded.Error.Code != "rate-limit" {
+			return nil // not a rate-limit-shaped 429; defer to ErrorJSON
+		}
+
+		return &OrttoRateLimitError{
+			StatusCode:      resp.StatusCode,
+			Code:            decoded.Error.Code,
+			Message:         decoded.Error.Message,
+			TryInSeconds:    decoded.Error.TryInSeconds,
+			ResponseHeaders: resp.Header.Clone(),
+			CallerStack:     captureNonFezStack(),
+		}
+	}
 }
 
 // SendContactsMerge sends a contacts merge request to the Ortto API.
