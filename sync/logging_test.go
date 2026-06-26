@@ -277,6 +277,111 @@ func TestExtractActivities(t *testing.T) {
 	}
 }
 
+func TestExtractContacts(t *testing.T) {
+	contacts := []OrttoContact{
+		{Fields: map[string]interface{}{"str::email": "a@example.com"}},
+		{Fields: map[string]interface{}{"str::email": "b@example.com"}},
+	}
+	if got := ExtractContacts(OrttoContactsRequest{Contacts: contacts}); len(got) != 2 {
+		t.Errorf("ExtractContacts(contacts request): got %d contacts, want 2", len(got))
+	}
+	if got := ExtractContacts(OrttoActivitiesRequest{}); got != nil {
+		t.Errorf("ExtractContacts(activities request): got %v, want nil", got)
+	}
+}
+
+func TestLoggableContact_PreservesMergeFieldSubstring(t *testing.T) {
+	// Load-bearing content guarantee: the rendered string must contain
+	// the substring the timeline's seed query looks for —
+	// `<mergeFieldID>:<value>`. Without this the timeline can't seed
+	// against contacts records.
+	c := OrttoContact{
+		Fields: map[string]interface{}{
+			"str:cm:tdk26-p2p-registration-id": "00000000-0000-0000-0000-000000000003",
+			"str:cm:name":                      "Alice",
+			"str::email":                       "alice@example.com",
+		},
+	}
+
+	got := LoggableContact(c, testMaxActivityLogBytes)
+
+	for _, want := range []string{
+		"str:cm:tdk26-p2p-registration-id:00000000-0000-0000-0000-000000000003",
+		"str:cm:name:Alice",
+		"str::email:alice@example.com",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("LoggableContact: missing %q in output\n  got: %s", want, got)
+		}
+	}
+}
+
+func TestLoggableContact_DoesNotMutateOriginal(t *testing.T) {
+	original := OrttoContact{
+		Fields: map[string]interface{}{
+			"str:cm:name": "Alice",
+			"str::email":  "alice@example.com",
+		},
+	}
+
+	_ = LoggableContact(original, testMaxActivityLogBytes)
+
+	for _, key := range []string{"str:cm:name", "str::email"} {
+		if _, ok := original.Fields[key]; !ok {
+			t.Errorf("LoggableContact mutated original: %q missing from Fields", key)
+		}
+	}
+}
+
+func TestLoggableContact_DropsVerboseFieldsWhenOversize(t *testing.T) {
+	// txt:-prefixed field carries the oversize content. The drop logic
+	// should strip it and append the verbose-drop marker; the merge
+	// field (str:-prefixed) must survive untouched.
+	bigStory := strings.Repeat("x", testMaxActivityLogBytes)
+	c := OrttoContact{
+		Fields: map[string]interface{}{
+			"str:cm:tdk26-p2p-registration-id": "p-1",
+			"txt:cm:bio":                       bigStory,
+		},
+	}
+
+	got := LoggableContact(c, testMaxActivityLogBytes)
+
+	if !strings.Contains(got, "str:cm:tdk26-p2p-registration-id:p-1") {
+		t.Errorf("LoggableContact: merge field must survive verbose drop\n  got: %s", got)
+	}
+	if strings.Contains(got, "txt:cm:bio") {
+		t.Errorf("LoggableContact: txt: field should have been dropped\n  got: %s", got)
+	}
+	if !strings.HasSuffix(got, activityLogVerboseDropMarker) {
+		t.Errorf("LoggableContact: verbose-drop marker missing\n  got: %s", got)
+	}
+	if len(got) > testMaxActivityLogBytes {
+		t.Errorf("LoggableContact: body still over cap after drop (%d > %d)", len(got), testMaxActivityLogBytes)
+	}
+}
+
+func TestLoggableContact_HardTruncationWhenAllDropsExhausted(t *testing.T) {
+	// All content is in str: fields, so the verbose-drop heuristic
+	// has nothing to drop. The body must hard-truncate with the
+	// truncation marker.
+	bigName := strings.Repeat("a", testMaxActivityLogBytes*2)
+	c := OrttoContact{
+		Fields: map[string]interface{}{
+			"str:cm:name": bigName,
+		},
+	}
+
+	got := LoggableContact(c, testMaxActivityLogBytes)
+
+	if !strings.HasSuffix(got, activityLogTruncationMarker) {
+		t.Errorf("LoggableContact: hard-truncation marker missing\n  got suffix: %q", got[max(0, len(got)-50):])
+	}
+	if len(got) > testMaxActivityLogBytes {
+		t.Errorf("LoggableContact: body still over cap after truncation (%d > %d)", len(got), testMaxActivityLogBytes)
+	}
+}
+
 // max is in stdlib in Go 1.21+, but provide a fallback for older toolchains.
 func max(a, b int) int {
 	if a > b {

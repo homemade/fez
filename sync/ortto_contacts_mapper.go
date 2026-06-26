@@ -222,6 +222,54 @@ func (o *OrttoContactsMapper) ReconcileFundraisingPage(p2pRegistrationID string,
 
 }
 
+// EnsureCustomPersonFields checks for missing Ortto custom person fields and creates them.
+// Builtin fields (containing "::") are skipped as they already exist in Ortto.
+// Returns the list of field IDs that were created.
+//
+// Contacts campaigns model every mapped field as a person field by definition
+// (Ortto's /v1/person/merge endpoint writes them directly to the contact
+// record). Mirrors OrttoActivitiesMapper.EnsureCustomPersonFields but iterates
+// the contacts field set — Fundraiser.Custom + Team.Custom — without the
+// activities-side IsPersonField filter.
+func (o *OrttoContactsMapper) EnsureCustomPersonFields(ctx context.Context) ([]string, error) {
+	existingFieldIDs, err := o.OrttoFetcherAndUpdater.ListCustomPersonFields(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	existingSet := make(map[string]bool)
+	for _, id := range existingFieldIDs {
+		existingSet[id] = true
+	}
+
+	fieldIDs := make([]string, 0)
+	fieldIDs = append(fieldIDs, o.Config.FundraiserFieldMappings.Custom.AllKeys()...)
+	fieldIDs = append(fieldIDs, o.Config.TeamFieldMappings.Custom.AllKeys()...)
+
+	var created []string
+	for _, fieldID := range fieldIDs {
+		if strings.Contains(fieldID, "::") {
+			continue
+		}
+		if existingSet[fieldID] {
+			continue
+		}
+
+		fieldType := o.Config.FundraiserFieldMappings.Custom.AsOrttoAPIFieldType(fieldID)
+		if o.Config.FundraiserFieldMappings.Custom.AsOrttoFieldType(fieldID) == "Unknown" {
+			fieldType = o.Config.TeamFieldMappings.Custom.AsOrttoAPIFieldType(fieldID)
+		}
+
+		fieldName := labelFromFieldID(fieldID)
+		if err := o.OrttoFetcherAndUpdater.CreateCustomPersonField(fieldName, fieldType, ctx); err != nil {
+			return created, fmt.Errorf("failed to create field %s: %w", fieldID, err)
+		}
+		created = append(created, fieldID)
+	}
+
+	return created, nil
+}
+
 // CheckOrttoCustomFields checks that all configured custom fields exist in Ortto.
 // Returns a map of field names to their status (ok/missing).
 func (o *OrttoContactsMapper) CheckOrttoCustomFields(statusProcessing string, statusOK string, statusMissing string, ctx context.Context) (map[string]string, error) {

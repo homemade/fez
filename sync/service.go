@@ -375,19 +375,27 @@ func (s *Service) CheckOrttoFields(ctx context.Context) (map[string]string, erro
 }
 
 // EnsureOrttoFields creates any missing Ortto custom person fields.
-// Returns the list of created field IDs.
-// Only valid for ortto-activities target.
+// Returns the list of created field IDs. Dispatches by Config.Target so
+// both ortto-activities and ortto-contacts targets get coverage — the
+// underlying CreateCustomPersonField call is target-agnostic; only the
+// field-set the mapper enumerates differs (activities filter by
+// IsPersonField, contacts treat every mapped field as a person field).
 // Does NOT require FetchCampaign.
 func (s *Service) EnsureOrttoFields(ctx context.Context) ([]string, error) {
-	if s.sc.Config.Target != "ortto-activities" {
-		return nil, fmt.Errorf("EnsureOrttoFields requires ortto-activities target, got: %q", s.sc.Config.Target)
-	}
-
 	raiselyMapper, orttoFetcherAndUpdater := s.buildMappers()
-	mapper := OrttoActivitiesMapper{
-		SyncContext: s.sc, RaiselyMapper: raiselyMapper, OrttoFetcherAndUpdater: orttoFetcherAndUpdater,
+
+	switch s.sc.Config.Target {
+	case "ortto-activities":
+		mapper := OrttoActivitiesMapper{
+			SyncContext: s.sc, RaiselyMapper: raiselyMapper, OrttoFetcherAndUpdater: orttoFetcherAndUpdater,
+		}
+		return mapper.EnsureCustomPersonFields(ctx)
+	default:
+		mapper := OrttoContactsMapper{
+			SyncContext: s.sc, RaiselyMapper: raiselyMapper, OrttoFetcherAndUpdater: orttoFetcherAndUpdater,
+		}
+		return mapper.EnsureCustomPersonFields(ctx)
 	}
-	return mapper.EnsureCustomPersonFields(ctx)
 }
 
 // --- Raisely webhook management ---

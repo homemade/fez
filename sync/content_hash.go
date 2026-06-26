@@ -84,6 +84,34 @@ func (a OrttoActivity) ContentHash() string {
 	return hex.EncodeToString(sum[:])[:16]
 }
 
+// ContentHash returns a 16-hex-char content fingerprint for the
+// contact. Symmetric with OrttoActivity.ContentHash: the hash is a
+// pure function of the contact's intrinsic content (ID + Fields), so
+// it can be computed on the contact alone before the surrounding
+// OrttoContactsRequest is finalised. Two contacts with the same ID
+// and Fields produce the same hash regardless of how they happen to
+// be batched.
+//
+// Request-level routing such as merge_by is not part of the input —
+// it is configured per-target and doesn't change per-event, so it
+// would only add noise to the dedupe key.
+//
+// Stability across Go's randomised map iteration order is provided
+// by encoding/json's guarantee to sort string map keys at every
+// level when marshalling.
+func (c OrttoContact) ContentHash() string {
+	var b strings.Builder
+	b.WriteString(c.ID)
+	b.WriteByte('|')
+	if c.Fields != nil {
+		fieldsJSON, _ := json.Marshal(c.Fields)
+		b.Write(fieldsJSON)
+	}
+
+	sum := sha256.Sum256([]byte(b.String()))
+	return hex.EncodeToString(sum[:])[:16]
+}
+
 // stripMetaAttributes returns a shallow copy of attrs with the keys
 // recognised by IsMetaActivityAttribute removed. nil in → nil out so
 // callers can distinguish "no attributes" from "empty attributes"

@@ -188,13 +188,87 @@ func LoggableActivity(activity OrttoActivity, maxBytes int) string {
 
 // ExtractActivities returns the activities slice from an OrttoRequest,
 // or nil if the request is not an activities request. Used by callers
-// driving per-activity logging — for OrttoContactsRequest a nil
-// return signals the caller should fall back to a single-line
-// envelope render (contacts requests are typically single-person and
-// well within any cap).
+// driving per-activity logging — see ExtractContacts for the contacts
+// equivalent.
 func ExtractActivities(req OrttoRequest) []OrttoActivity {
 	if a, ok := req.AsOrttoActivitiesRequest(); ok {
 		return a.Activities
 	}
 	return nil
+}
+
+// ExtractContacts returns the contacts slice from an OrttoRequest,
+// or nil if the request is not a contacts request. Sibling of
+// ExtractActivities — used by callers driving per-item logging so
+// contacts batches (notably team-update batches with N members) split
+// cleanly across separate log records under any per-record drain cap.
+func ExtractContacts(req OrttoRequest) []OrttoContact {
+	if c, ok := req.AsOrttoContactsRequest(); ok {
+		return c.Contacts
+	}
+	return nil
+}
+
+// LoggableContact returns a single-line representation of one
+// OrttoContact for emission on a per-item log line. Sibling of
+// LoggableActivity — webhook handlers emit one of these per contact
+// in a multi-contact batch so a team-update payload doesn't exceed
+// the deploy target's per-record drain cap.
+//
+// maxBytes is the caller-supplied cap on the rendered length. See
+// LoggableActivity for the headroom guidance.
+//
+// The returned string:
+//   - is capped at maxBytes — if the body exceeds the cap, every
+//     Fields entry whose key has the verboseFieldPrefix (`txt:`,
+//     Ortto's text-field type prefix) is dropped and
+//     activityLogVerboseDropMarker is appended. As a last resort the
+//     body is hard-truncated with activityLogTruncationMarker.
+//   - never mutates the input — Fields is shallow-cloned before any
+//     keys are dropped.
+//
+// Load-bearing content guarantee: when a contact carries a merge
+// field in its Fields map (e.g. `str:cm:<merge-field>:<uuid>` for
+// the configured fundraiser merge field), the rendered string
+// contains the substring so the timeline's content-based seed query
+// matches it. Merge fields use Ortto's `str:` prefix (short string),
+// never `txt:`, so they're never dropped by the size-based logic.
+func LoggableContact(contact OrttoContact, maxBytes int) string {
+	clone := contact
+	out := fmt.Sprintf("%+v", clone)
+	if len(out) <= maxBytes {
+		return out
+	}
+
+	// Over the cap. Clone Fields so verbose-field drops don't mutate
+	// the original.
+	if contact.Fields != nil {
+		clone.Fields = make(map[string]interface{}, len(contact.Fields))
+		for k, v := range contact.Fields {
+			clone.Fields[k] = v
+		}
+	}
+
+	droppedAny := false
+	for k := range clone.Fields {
+		if strings.HasPrefix(k, verboseFieldPrefix) {
+			delete(clone.Fields, k)
+			droppedAny = true
+		}
+	}
+	if droppedAny {
+		out = fmt.Sprintf("%+v", clone)
+		if len(out)+len(activityLogVerboseDropMarker) <= maxBytes {
+			return out + activityLogVerboseDropMarker
+		}
+	}
+
+	cut := maxBytes - len(activityLogTruncationMarker)
+	if cut < 0 {
+		cut = 0
+	}
+	if cut > len(out) {
+		cut = len(out)
+	}
+	return strings.TrimRight(out[:cut], " ") + activityLogTruncationMarker
 }

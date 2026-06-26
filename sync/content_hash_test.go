@@ -112,3 +112,52 @@ func TestContentHash_Length(t *testing.T) {
 		t.Fatalf("hash should be 16 hex chars, got %d (%q)", len(got), got)
 	}
 }
+
+func TestContactContentHash_Identical(t *testing.T) {
+	a := OrttoContact{
+		ID: "c-1",
+		Fields: map[string]interface{}{
+			"str:cm:reg-id":  "p-1",
+			"str:first-name": "Alice",
+		},
+	}
+	b := OrttoContact{
+		ID: "c-1",
+		Fields: map[string]interface{}{
+			"str:first-name": "Alice",
+			"str:cm:reg-id":  "p-1",
+		},
+	}
+	if a.ContentHash() != b.ContentHash() {
+		t.Fatalf("identical contacts should hash to the same value")
+	}
+}
+
+func TestContactContentHash_FieldChange(t *testing.T) {
+	base := OrttoContact{Fields: map[string]interface{}{"str:cm:reg-id": "p-1"}}
+	changed := OrttoContact{Fields: map[string]interface{}{"str:cm:reg-id": "p-2"}}
+
+	if base.ContentHash() == changed.ContentHash() {
+		t.Fatalf("a field change should produce a different hash")
+	}
+}
+
+func TestContactContentHash_IDChange(t *testing.T) {
+	base := OrttoContact{
+		ID:     "c-1",
+		Fields: map[string]interface{}{"str:cm:reg-id": "p-1"},
+	}
+	changed := base
+	changed.ID = "c-2"
+
+	if base.ContentHash() == changed.ContentHash() {
+		t.Fatalf("an ID change should produce a different hash")
+	}
+}
+
+func TestContactContentHash_Length(t *testing.T) {
+	c := OrttoContact{Fields: map[string]interface{}{"str:cm:reg-id": "p-1"}}
+	if got := c.ContentHash(); len(got) != 16 {
+		t.Fatalf("hash should be 16 hex chars, got %d (%q)", len(got), got)
+	}
+}
