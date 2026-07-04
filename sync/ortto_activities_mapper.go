@@ -507,6 +507,17 @@ func (o OrttoActivitiesMapper) extractFieldMappings(attributes *[]ActivityDefini
 		})
 	}
 
+	// Dates -> date
+	// "date" is Ortto's activity-attribute display_type for a date-with-timezone
+	// (dtz:) field — confirmed: the attribute lands as a Date in Ortto.
+	for fieldID := range mappings.Dates {
+		*attributes = append(*attributes, ActivityDefinitionAttribute{
+			Name:        o.extractFieldName(fieldID),
+			DisplayType: "date",
+			FieldID:     o.resolveFieldID(fieldID, personFieldIDs),
+		})
+	}
+
 }
 
 // resolveFieldID returns the field_id for the activity attribute.

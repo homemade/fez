@@ -201,6 +201,13 @@ func (o *OrttoContactsMapper) ReconcileFundraisingPage(p2pRegistrationID string,
 				}
 			}
 
+			// dtz: needs no special handling — verified 2026-07-03 via a
+			// merge/get round-trip against the test account: Ortto returns the
+			// {year,month,day,timezone} object exactly as sent (no added id like
+			// geo:, no stringify like tme:), and json.Marshal renders the sent
+			// int fields and the read-back float64 fields identically, so the
+			// comparison matches.
+
 			expected, err := json.Marshal(sourceValue)
 			if err != nil {
 				return result, err

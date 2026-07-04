@@ -47,6 +47,11 @@ func (om orttoCRMFieldMapper) ExpandFieldMappings(mappings *FieldMappings, custo
 		mappings.Geos = s
 		errs = append(errs, err)
 	}
+	if mappings.Dates != nil {
+		s, err := om.expandNestedFieldType(Date, mappings.Dates, custom)
+		mappings.Dates = s
+		errs = append(errs, err)
+	}
 	if mappings.Integers != nil {
 		s, err := om.expandSimpleFieldType(Integer, mappings.Integers, custom)
 		mappings.Integers = s
@@ -93,6 +98,8 @@ func (om orttoCRMFieldMapper) expandNestedFieldType(fieldType NestedFieldType, f
 			s = "phn:" + s
 		case Geo:
 			s = "geo:" + s
+		case Date:
+			s = "dtz:" + s
 		default:
 			return result, fmt.Errorf("invalid nested field type %v", fieldType)
 		}

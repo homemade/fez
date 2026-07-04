@@ -120,6 +120,7 @@ type FieldMappings struct {
 	Timestamps map[string]string
 	Phones     map[string]map[string]string
 	Geos       map[string]map[string]string
+	Dates      map[string]map[string]string
 	Integers   map[string]string
 }
 
@@ -132,6 +133,7 @@ func (m FieldMappings) AllKeys() []string {
 	result = append(result, FieldMapsKeys(m.Timestamps)...)
 	result = append(result, NestedFieldMapsKeys(m.Phones)...)
 	result = append(result, NestedFieldMapsKeys(m.Geos)...)
+	result = append(result, NestedFieldMapsKeys(m.Dates)...)
 	result = append(result, FieldMapsKeys(m.Integers)...)
 	return result
 }
@@ -145,6 +147,7 @@ func (m FieldMappings) AllValues() []string {
 	result = append(result, FieldMapsValues(m.Timestamps)...)
 	result = append(result, NestedFieldMapsValues(m.Phones)...)
 	result = append(result, NestedFieldMapsValues(m.Geos)...)
+	result = append(result, NestedFieldMapsValues(m.Dates)...)
 	result = append(result, FieldMapsValues(m.Integers)...)
 	return result
 }
@@ -185,6 +188,11 @@ func (m FieldMappings) AsOrttoFieldType(key string) string {
 			return "Geo"
 		}
 	}
+	if m.Dates != nil {
+		if _, exists := m.Dates[key]; exists {
+			return "Date"
+		}
+	}
 	if m.Integers != nil {
 		if _, exists := m.Integers[key]; exists {
 			return "Number"
@@ -213,6 +221,8 @@ func (m FieldMappings) AsOrttoAPIFieldType(key string) string {
 		return "phone"
 	case "Geo":
 		return "geo"
+	case "Date":
+		return "date"
 	default:
 		return "text"
 	}
@@ -274,6 +284,7 @@ type NestedFieldType int64
 const (
 	Phone NestedFieldType = iota
 	Geo
+	Date
 )
 
 type ConfigUnmarshaler interface {
