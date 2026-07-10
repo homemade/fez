@@ -15,7 +15,7 @@ type FieldDocRow struct {
 	Entity      string // "Person" or "Activity" (only for ortto-activities)
 	IsBuiltin   bool   // Whether this is a built-in Ortto field
 	FieldType   string // Ortto field type (Text, Long text, Boolean, etc.)
-	SourcePath  string // Raisely source path
+	SourcePath  string // P2P source path
 	Notes       string // Mapping notes (transforms, warnings, team indicator)
 	IsTeamField    bool // Whether this is a team field
 	IsReferralField bool // Whether this is a referral field

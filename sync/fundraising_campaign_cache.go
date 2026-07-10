@@ -3,15 +3,15 @@ package sync
 import "context"
 
 // FundraisingCampaignCache is an optional cross-call cache for
-// [FundraisingCampaign] documents fetched from the Raisely API. The
+// [FundraisingCampaign] documents fetched from the P2P source. The
 // cache is keyed by p2pID (globally unique campaign identifier) and is
 // consulted by [RaiselyFetcherAndUpdater.CachedFundraisingCampaign]
-// before reaching Raisely.
+// before reaching the P2P source.
 //
 // The cache is opt-in. Wiring it is the consumer's responsibility — fez
 // ships the interface only; an implementation lives downstream (typically
 // a shared cross-process store). A nil implementation means no caching at
-// all — every CachedFundraisingCampaign call fetches directly from Raisely.
+// all — every CachedFundraisingCampaign call fetches directly from the P2P source.
 //
 // # TTL
 //
@@ -24,7 +24,7 @@ import "context"
 //
 // Backing-store errors are reported via the bool / error returns. The
 // fetcher fails open on Get errors — treats them as a miss and fetches
-// from Raisely — so a transient backing-store hiccup degrades to
+// from the P2P source — so a transient backing-store hiccup degrades to
 // uncached behaviour, not to a stale or failed response. Set errors are
 // logged and swallowed by the fetcher; the next call will retry. Delete
 // errors propagate to the operator-driven cache-bust caller.
@@ -34,7 +34,7 @@ type FundraisingCampaignCache interface {
 	// *FundraisingCampaign) is a miss, an expired entry, or an entry the
 	// implementation has otherwise chosen not to surface. A non-nil err
 	// reports a backing-store failure; callers fail-open (treat as a
-	// miss and fetch from Raisely).
+	// miss and fetch from the P2P source).
 	Get(ctx context.Context, p2pID string) (campaign *FundraisingCampaign, ok bool, err error)
 
 	// Set writes campaign into the cache under p2pID, stamping org

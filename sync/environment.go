@@ -16,7 +16,7 @@ type configOptions struct {
 type ConfigOption func(*configOptions)
 
 // ConfigWithCRMFieldMapper sets the CRMFieldMapper for expanding field mappings.
-// This is required for Ortto integration but not needed for Raisely-only use cases.
+// This is required for CRM integration but not needed for P2P-only use cases.
 func ConfigWithCRMFieldMapper(mapper CRMFieldMapper) ConfigOption {
 	return func(o *configOptions) {
 		o.crmFieldMapper = mapper
@@ -232,7 +232,7 @@ func loadCampaignConfig(embeddedMappings EmbeddedMappings, envVar CampaignEnvVar
 		return result, fmt.Errorf("failed to read defaults mapping file %w", err)
 	}
 
-	// Optional referrals companion file (Raisely Custom Messages mapping)
+	// Optional referrals companion file (P2P-side messaging mapping)
 	referralsCompanionFile, err := embeddedMappings.FindReferralsCompanionMappingFileByPath(mappingPath, target)
 	if err != nil {
 		return result, fmt.Errorf("failed to read referrals companion mapping file %w", err)

@@ -388,8 +388,8 @@ func (u YAMLConfigUnmarshaler) Unmarshal(compev CompositeEnvVar, sources ...Mapp
 	}
 
 	// Only expand field mappings if CRMFieldMapper is provided.
-	// This allows loading config for Raisely-only use cases (like extensions)
-	// without requiring Ortto/CRM dependencies.
+	// This allows loading config for P2P-only use cases (like extensions)
+	// without requiring CRM dependencies.
 	if u.CRMFieldMapper != nil {
 		err = u.CRMFieldMapper.ExpandFieldMappings(&result.FundraiserFieldMappings.Builtin, false)
 		if err == nil {

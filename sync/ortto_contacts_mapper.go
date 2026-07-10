@@ -13,7 +13,7 @@ import (
 	"github.com/tidwall/gjson"
 )
 
-// OrttoContactsMapper maps Raisely data to Ortto Contacts/CDP API format.
+// OrttoContactsMapper maps P2P data to Ortto Contacts/CDP API format.
 // This implements the OrttoMapper interface for the ortto-contacts target.
 type OrttoContactsMapper struct {
 	*SyncContext

@@ -12,7 +12,7 @@ import (
 	"github.com/tidwall/gjson"
 )
 
-// OrttoActivitiesMapper maps Raisely data to Ortto Activities API format.
+// OrttoActivitiesMapper maps P2P data to Ortto Activities API format.
 // This implements the OrttoMapper interface for the ortto-activities target.
 type OrttoActivitiesMapper struct {
 	*SyncContext
