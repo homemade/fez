@@ -162,7 +162,7 @@ type OrttoRequest interface {
 // been removed; do not reintroduce them.
 type OrttoResponse interface{}
 
-// OrttoMapper is the interface for mapping Raisely data to ortto-specific formats.
+// OrttoMapper is the interface for mapping P2P data to ortto-specific formats.
 // Implementations exist for each integration target (e.g., OrttoContactsMapper, OrttoActivitiesMapper).
 type OrttoMapper interface {
 	MapFundraisingPage(campaign *FundraisingCampaign, data FundraiserData) (OrttoRequest, error)
@@ -174,6 +174,10 @@ type OrttoMapper interface {
 // NewOrttoMapper creates an OrttoMapper based on the target specified in the SyncContext's config.
 // If target is empty or "ortto-contacts", it returns an OrttoContactsMapper.
 // If target is "ortto-activities", it returns an OrttoActivitiesMapper.
+// If target is "ortto-none", it returns a noopOrttoMapper — for
+// campaigns that opt out of Ortto integration entirely. Any
+// fundraising-platform-side work such a campaign performs runs
+// through the flavour's fetcher/updater independently of this mapper.
 func NewOrttoMapper(sc *SyncContext) OrttoMapper {
 	mustBeInitialised()
 
@@ -187,6 +191,8 @@ func NewOrttoMapper(sc *SyncContext) OrttoMapper {
 			RaiselyMapper:          raiselyMapper,
 			OrttoFetcherAndUpdater: orttoFetcherAndUpdater,
 		}
+	case "ortto-none":
+		return noopOrttoMapper{}
 	default: // "", "ortto-contacts"
 		return &OrttoContactsMapper{
 			SyncContext:            sc,
@@ -194,6 +200,50 @@ func NewOrttoMapper(sc *SyncContext) OrttoMapper {
 			OrttoFetcherAndUpdater: orttoFetcherAndUpdater,
 		}
 	}
+}
+
+// noopOrttoRequest is the zero-item OrttoRequest returned by
+// noopOrttoMapper for the "ortto-none" target — campaigns that
+// opt out of Ortto integration. ItemCount always returns 0 so
+// caller-side "skip if no items to send" guards short-circuit
+// safely; both AsOrtto*Request methods return the zero concrete
+// request and false. Value type — carries no state, so instances
+// are freely shared and never nil.
+type noopOrttoRequest struct{}
+
+func (noopOrttoRequest) ItemCount() int { return 0 }
+
+func (noopOrttoRequest) AsOrttoContactsRequest() (OrttoContactsRequest, bool) {
+	return OrttoContactsRequest{}, false
+}
+
+func (noopOrttoRequest) AsOrttoActivitiesRequest() (OrttoActivitiesRequest, bool) {
+	return OrttoActivitiesRequest{}, false
+}
+
+// noopOrttoMapper is the OrttoMapper implementation for the
+// "ortto-none" target — campaigns that opt out of Ortto integration
+// entirely. Any outbound work such a campaign performs is driven by
+// paths outside this mapper. All mapping methods return an empty
+// noopOrttoRequest and a nil error; SendRequest returns (nil, nil)
+// as a safety net for any caller that forgets to gate on
+// ItemCount() first (callers should not reach it in normal flow).
+type noopOrttoMapper struct{}
+
+func (noopOrttoMapper) MapFundraisingPage(*FundraisingCampaign, FundraiserData) (OrttoRequest, error) {
+	return noopOrttoRequest{}, nil
+}
+
+func (noopOrttoMapper) MapTeamFundraisingPage(*FundraisingCampaign, TeamData) (OrttoRequest, error) {
+	return noopOrttoRequest{}, nil
+}
+
+func (noopOrttoMapper) MapTrackingData(*FundraisingCampaign, map[string]string, context.Context) (OrttoRequest, error) {
+	return noopOrttoRequest{}, nil
+}
+
+func (noopOrttoMapper) SendRequest(OrttoRequest, context.Context) (OrttoResponse, error) {
+	return nil, nil
 }
 
 // OrttoContact represents a single contact/person in the Ortto Contacts/CDP API.

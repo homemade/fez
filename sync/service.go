@@ -13,7 +13,7 @@ import (
 )
 
 // Service provides campaign operations used by CLI commands,
-// admin API routes, and Raisely webhook/tracking handlers.
+// admin API routes, and P2P webhook/tracking handlers.
 //
 // Usage:
 //
@@ -66,9 +66,9 @@ func ServiceWithDebug() ServiceOption {
 // ServiceWithFundraisingCampaignCache supplies a [FundraisingCampaignCache]
 // for the service's [RaiselyFetcherAndUpdater]. A nil cache (or omitting
 // this option entirely) means no caching at all — every
-// CachedFundraisingCampaign call fetches directly from Raisely. Consumers
-// that construct a RaiselyFetcherAndUpdater directly (without going
-// through NewService) set the field on the struct literal instead.
+// CachedFundraisingCampaign call fetches directly from the P2P source.
+// Consumers that construct a RaiselyFetcherAndUpdater directly (without
+// going through NewService) set the field on the struct literal instead.
 func ServiceWithFundraisingCampaignCache(c FundraisingCampaignCache) ServiceOption {
 	return func(o *serviceOptions) {
 		o.fundraisingCampaignCache = c
@@ -105,7 +105,7 @@ func (s *Service) SyncContext() *SyncContext {
 	return s.sc
 }
 
-// FetchCampaign fetches (or cache-hits) the fundraising campaign from Raisely.
+// FetchCampaign fetches (or cache-hits) the fundraising campaign from the P2P source.
 // Must be called before Map and Send operations.
 // Set refresh=true to force a fresh fetch (e.g. on new registrations).
 func (s *Service) FetchCampaign(refresh bool, ctx context.Context) (*FundraisingCampaign, error) {
@@ -232,7 +232,7 @@ func (s *Service) MapByWebhookModel(modelType, modelID, parentType, parentID str
 	return nil, nil, fmt.Errorf("unsupported model type: %s", modelType)
 }
 
-// referralsEligibleEvent reports whether the given Raisely webhook event
+// referralsEligibleEvent reports whether the given P2P webhook event
 // type should trigger referrals processing. Limited to events that
 // signal a deliberate profile create/edit so high-frequency totals
 // updates (donations, exercise logs) don't re-fire referral sends.
@@ -282,11 +282,12 @@ func (s *Service) SendRequest(req OrttoRequest, ctx context.Context) (OrttoRespo
 	return s.mapper.SendRequest(req, ctx)
 }
 
-// ProcessReferrals sends each Raisely Custom Message event in the batch
-// and writes back processedAt to Raisely for both the always-skipped
-// entries (missing email) and the entries whose send succeeded. Failed
-// sends are left unmarked so the next webhook retries only those — the
-// existing processedAt field doubles as per-entry retry state.
+// ProcessReferrals sends each P2P-side messaging event in the batch
+// and writes back processedAt to the P2P source for both the
+// always-skipped entries (missing email) and the entries whose send
+// succeeded. Failed sends are left unmarked so the next webhook
+// retries only those — the existing processedAt field doubles as
+// per-entry retry state.
 //
 // All sends are attempted even after a failure. The returned error
 // (errors.Join of per-event errors and any write-back failure) is
@@ -356,6 +357,8 @@ func (s *Service) buildMappers() (RaiselyMapper, OrttoFetcherAndUpdater) {
 
 // CheckOrttoFields validates that all required Ortto custom fields exist.
 // Returns a map of field ID → status ("✅", "❌", "⏳").
+// For the "ortto-none" target, returns an empty map — those campaigns
+// have no Ortto integration and therefore no custom fields to check.
 // Does NOT require FetchCampaign.
 func (s *Service) CheckOrttoFields(ctx context.Context) (map[string]string, error) {
 	raiselyMapper, orttoFetcherAndUpdater := s.buildMappers()
@@ -366,6 +369,8 @@ func (s *Service) CheckOrttoFields(ctx context.Context) (map[string]string, erro
 			SyncContext: s.sc, RaiselyMapper: raiselyMapper, OrttoFetcherAndUpdater: orttoFetcherAndUpdater,
 		}
 		return mapper.CheckOrttoCustomFields("⏳", "✅", "❌", ctx)
+	case "ortto-none":
+		return map[string]string{}, nil
 	default:
 		mapper := OrttoContactsMapper{
 			SyncContext: s.sc, RaiselyMapper: raiselyMapper, OrttoFetcherAndUpdater: orttoFetcherAndUpdater,
@@ -380,6 +385,8 @@ func (s *Service) CheckOrttoFields(ctx context.Context) (map[string]string, erro
 // underlying CreateCustomPersonField call is target-agnostic; only the
 // field-set the mapper enumerates differs (activities filter by
 // IsPersonField, contacts treat every mapped field as a person field).
+// For the "ortto-none" target, returns an empty slice — those campaigns
+// have no Ortto integration and therefore no fields to create.
 // Does NOT require FetchCampaign.
 func (s *Service) EnsureOrttoFields(ctx context.Context) ([]string, error) {
 	raiselyMapper, orttoFetcherAndUpdater := s.buildMappers()
@@ -390,6 +397,8 @@ func (s *Service) EnsureOrttoFields(ctx context.Context) ([]string, error) {
 			SyncContext: s.sc, RaiselyMapper: raiselyMapper, OrttoFetcherAndUpdater: orttoFetcherAndUpdater,
 		}
 		return mapper.EnsureCustomPersonFields(ctx)
+	case "ortto-none":
+		return []string{}, nil
 	default:
 		mapper := OrttoContactsMapper{
 			SyncContext: s.sc, RaiselyMapper: raiselyMapper, OrttoFetcherAndUpdater: orttoFetcherAndUpdater,
@@ -398,9 +407,9 @@ func (s *Service) EnsureOrttoFields(ctx context.Context) ([]string, error) {
 	}
 }
 
-// --- Raisely webhook management ---
+// --- P2P webhook management ---
 
-// WebhookStatus holds the result of checking a Raisely webhook.
+// WebhookStatus holds the result of checking a P2P webhook.
 type WebhookStatus struct {
 	URL           string
 	Exists        bool

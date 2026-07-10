@@ -135,10 +135,18 @@ func (em EmbeddedMappings) MustFindFirstCampaignMappingFileWithTargetByPath(mapp
 	return result, target, err
 }
 
-// knownTargets defines the recognized target suffixes for mapping files
+// knownTargets defines the recognized target suffixes for mapping files.
+//
+// "ortto-none" is a first-class target for campaigns that opt out of
+// Ortto integration. Its mapping file follows the same
+// <label>.<target>.yaml convention as the other targets and is mapped
+// by a noopOrttoMapper that returns zero-item requests. Any
+// fundraising-platform-side work the campaign performs runs through
+// the flavour's fetcher/updater and is orthogonal to this target.
 var knownTargets = map[string]bool{
 	"ortto-contacts":   true,
 	"ortto-activities": true,
+	"ortto-none":       true,
 }
 
 // FindReferralsCompanionMappingFileByPath looks for a referrals
