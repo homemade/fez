@@ -388,7 +388,7 @@ func TestProcessReferrals_PartialFailure(t *testing.T) {
 			`]`,
 	}
 
-	err := svc.ProcessReferrals(batch, t.Context())
+	err := svc.ProcessReferrals([]ReferralBatch{*batch}, t.Context())
 	if err == nil {
 		t.Fatal("expected error reflecting partial failure, got nil")
 	}
@@ -453,7 +453,7 @@ func TestProcessReferrals_AllSuccess(t *testing.T) {
 		ReferralsJSON:  `[{"email":"a@x"},{"email":"b@x"}]`,
 	}
 
-	if err := svc.ProcessReferrals(batch, t.Context()); err != nil {
+	if err := svc.ProcessReferrals([]ReferralBatch{*batch}, t.Context()); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 

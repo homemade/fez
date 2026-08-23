@@ -19,9 +19,9 @@ import (
 //
 //	svc := sync.NewService(config, campaignID, trigger)
 //	svc.FetchCampaign(false, ctx)                              // required before Map/Send
-//	req, ref, _ := svc.MapFundraisingProfile(profileID, ctx)   // map without sending
-//	if req != nil { svc.SendRequest(req, ctx) }                // send Ortto request
-//	if ref != nil { svc.ProcessReferrals(ref, ctx) }           // send referral events + write-back
+//	req, refs, _ := svc.MapFundraisingProfile(profileID, ctx)  // map without sending
+//	if req != nil { svc.SendRequest(req, ctx) }                // send outbound request
+//	if len(refs) > 0 { svc.ProcessReferrals(refs, ctx) }       // send referral events + write-back
 //
 // Operations that do not require FetchCampaign:
 //
@@ -130,11 +130,21 @@ func (s *Service) requireMapper() error {
 // --- Mapping ---
 
 // MapFundraisingProfile fetches a profile, determines whether it belongs
-// to a team or is an individual, and maps it. Returns the Ortto request
-// for the profile (or team) plus an optional ReferralBatch for any
-// unprocessed referral entries on an individual profile.
+// to a team or is an individual, and maps it. Returns the outbound
+// request for the profile (or team) plus a slice of per-profile
+// [ReferralBatch] instances covering every unprocessed referral entry
+// the branch surfaces. The slice is nil when nothing needs dispatching.
+//
+// Team branch fan-out. When the profile belongs to a team (see
+// [FundraisingProfile.TeamP2PID]), the outbound request already covers
+// every team member — [FetchTeamData] loaded each member's page —
+// so referrals detection fans across every member page, producing one
+// batch per member that has unprocessed invitations. Manual sync
+// unconditionally scans every member; the event-type gate only
+// applies to the webhook path.
+//
 // FetchCampaign must be called first.
-func (s *Service) MapFundraisingProfile(profileID string, ctx context.Context) (OrttoRequest, *ReferralBatch, error) {
+func (s *Service) MapFundraisingProfile(profileID string, ctx context.Context) (OrttoRequest, []ReferralBatch, error) {
 	if err := s.requireMapper(); err != nil {
 		return nil, nil, err
 	}
@@ -176,7 +186,11 @@ func (s *Service) MapFundraisingProfile(profileID string, ctx context.Context) (
 		if err != nil {
 			return nil, nil, err
 		}
-		return req, nil, nil
+		batches, err := s.mapTeamReferrals(teamData)
+		if err != nil {
+			return req, batches, err
+		}
+		return req, batches, nil
 	}
 
 	data, err := s.fetcher.FetchFundraiserData(profileID, ctx)
@@ -191,14 +205,22 @@ func (s *Service) MapFundraisingProfile(profileID string, ctx context.Context) (
 
 // MapByWebhookModel maps using model type information already known from
 // the webhook payload, avoiding a redundant profile fetch. Returns the
-// Ortto request and, for INDIVIDUAL profiles when eventType signals a
-// deliberate profile create/edit, a ReferralBatch to be processed via
-// Service.ProcessReferrals. High-frequency totals events
+// outbound request plus, when eventType signals a deliberate profile
+// create/edit, per-profile [ReferralBatch] instances to be processed
+// via [Service.ProcessReferrals]. High-frequency totals events
 // (profile.totalUpdated, profile.exerciseTotalUpdated) skip the
 // referrals path — invitations only need to fire when the fundraiser
 // explicitly creates or edits their profile.
+//
+// Team branch fan-out. Team-member triggers (INDIVIDUAL under GROUP)
+// and team-itself triggers (GROUP) both go down the team branch, which
+// already re-syncs every team member on the outbound side. When the
+// event is eligible, referrals detection fans across every member
+// page from the same team fetch — one batch per member that has
+// unprocessed invitations. No extra P2P calls beyond the team fetch.
+//
 // FetchCampaign must be called first.
-func (s *Service) MapByWebhookModel(modelType, modelID, parentType, parentID string, parentIsCampaignProfile bool, eventType string, ctx context.Context) (OrttoRequest, *ReferralBatch, error) {
+func (s *Service) MapByWebhookModel(modelType, modelID, parentType, parentID string, parentIsCampaignProfile bool, eventType string, ctx context.Context) (OrttoRequest, []ReferralBatch, error) {
 	if err := s.requireMapper(); err != nil {
 		return nil, nil, err
 	}
@@ -217,7 +239,14 @@ func (s *Service) MapByWebhookModel(modelType, modelID, parentType, parentID str
 		if err != nil {
 			return nil, nil, err
 		}
-		return req, nil, nil
+		if !referralsEligibleEvent(eventType) {
+			return req, nil, nil
+		}
+		batches, err := s.mapTeamReferrals(teamData)
+		if err != nil {
+			return req, batches, err
+		}
+		return req, batches, nil
 	}
 
 	if modelType == "INDIVIDUAL" {
@@ -232,6 +261,51 @@ func (s *Service) MapByWebhookModel(modelType, modelID, parentType, parentID str
 	return nil, nil, fmt.Errorf("unsupported model type: %s", modelType)
 }
 
+// mapFundraiserReferralsFromPage runs [RaiselyFetcherAndUpdater.MapFundraiserReferrals]
+// with only the fundraiser's own profile page — no donations / exercise
+// logs data is needed for referrals detection. Used from the team-branch
+// fan-out ([mapTeamReferrals]) where a full FundraiserData isn't
+// fetched but each individual member still owns their own invitations.
+// Returns (nil, nil) when the referrals trigger isn't configured for
+// the campaign.
+func (s *Service) mapFundraiserReferralsFromPage(profileID string, page FundraisingPage) (*ReferralBatch, error) {
+	if s.sc.Config.API.Settings.RaiselyFundraiserReferralsField == "" {
+		return nil, nil
+	}
+	return s.fetcher.MapFundraiserReferrals(profileID, FundraiserData{Page: page}, s.sc.Config, s.sc.Campaign)
+}
+
+// mapTeamReferrals detects unprocessed referrals on every member of a
+// team and returns one [ReferralBatch] per member that has any. Every
+// member page is already loaded inside teamData from [FetchTeamData]
+// with private data, so this is a pure in-memory scan — no extra P2P
+// calls. Members with no configured referrals field, no unprocessed
+// entries, or an unreadable uuid produce no batch. Per-member errors
+// are joined and returned alongside whatever batches were built, so a
+// single bad member doesn't drop the rest of the team.
+func (s *Service) mapTeamReferrals(td TeamData) ([]ReferralBatch, error) {
+	if s.sc.Config.API.Settings.RaiselyFundraiserReferralsField == "" {
+		return nil, nil
+	}
+	var batches []ReferralBatch
+	var errs []error
+	for i := range td.MemberPages {
+		memberID, ok := td.MemberPages[i].Source.StringForPath("uuid")
+		if !ok || memberID == "" {
+			continue
+		}
+		batch, err := s.mapFundraiserReferralsFromPage(memberID, td.MemberPages[i])
+		if err != nil {
+			errs = append(errs, fmt.Errorf("member %s: %w", memberID, err))
+			continue
+		}
+		if batch != nil {
+			batches = append(batches, *batch)
+		}
+	}
+	return batches, errors.Join(errs...)
+}
+
 // referralsEligibleEvent reports whether the given P2P webhook event
 // type should trigger referrals processing. Limited to events that
 // signal a deliberate profile create/edit so high-frequency totals
@@ -240,12 +314,12 @@ func referralsEligibleEvent(eventType string) bool {
 	return eventType == "profile.created" || eventType == "profile.updated"
 }
 
-// mapIndividual maps an individual profile to its Ortto request and,
-// when includeReferrals is true and the referrals trigger is
-// configured, a ReferralBatch covering any unprocessed referral
-// entries. The Ortto mapping always runs; only the referrals work is
-// gated.
-func (s *Service) mapIndividual(profileID string, data FundraiserData, includeReferrals bool) (OrttoRequest, *ReferralBatch, error) {
+// mapIndividual maps an individual profile to its outbound request
+// and, when includeReferrals is true and the referrals trigger is
+// configured, a one-element slice carrying that profile's referrals
+// batch. The outbound mapping always runs; only the referrals work
+// is gated. Returns a nil slice when no batch is produced.
+func (s *Service) mapIndividual(profileID string, data FundraiserData, includeReferrals bool) (OrttoRequest, []ReferralBatch, error) {
 	req, err := s.mapper.MapFundraisingPage(s.campaign, data)
 	if err != nil {
 		return nil, nil, err
@@ -259,7 +333,10 @@ func (s *Service) mapIndividual(profileID string, data FundraiserData, includeRe
 	if err != nil {
 		return req, nil, err
 	}
-	return req, batch, nil
+	if batch == nil {
+		return req, nil, nil
+	}
+	return req, []ReferralBatch{*batch}, nil
 }
 
 // MapTrackingData maps tracking key-value pairs to an Ortto request.
@@ -282,28 +359,42 @@ func (s *Service) SendRequest(req OrttoRequest, ctx context.Context) (OrttoRespo
 	return s.mapper.SendRequest(req, ctx)
 }
 
-// ProcessReferrals sends each P2P-side messaging event in the batch
-// and writes back processedAt to the P2P source for both the
-// always-skipped entries (missing email) and the entries whose send
-// succeeded. Failed sends are left unmarked so the next webhook
-// retries only those — the existing processedAt field doubles as
-// per-entry retry state.
+// ProcessReferrals iterates the supplied batches and, per profile,
+// sends each P2P-side messaging event and writes back processedAt
+// to the P2P source for the always-skipped entries (missing email)
+// plus the entries whose send succeeded. Failed sends are left
+// unmarked so the next trigger retries only those — the existing
+// processedAt field doubles as per-entry retry state.
 //
-// All sends are attempted even after a failure. The returned error
-// (errors.Join of per-event errors and any write-back failure) is
-// non-nil if anything went wrong; partial success still triggers a
-// write-back of the successful entries.
-func (s *Service) ProcessReferrals(batch *ReferralBatch, ctx context.Context) error {
-	if batch == nil {
+// All sends across all batches are attempted even after individual
+// failures. The returned error joins per-event errors and any
+// per-batch write-back failures; partial success still triggers a
+// per-batch write-back for that batch's successful entries. One bad
+// profile doesn't block the rest of the slice.
+func (s *Service) ProcessReferrals(batches []ReferralBatch, ctx context.Context) error {
+	if len(batches) == 0 {
 		return nil
 	}
+	var errs []error
+	for _, batch := range batches {
+		if err := s.processReferralBatch(batch, ctx); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	return errors.Join(errs...)
+}
 
+// processReferralBatch handles one profile's referral batch: send
+// each message, then write back processedAt for skipped-plus-success
+// entries. Kept as the single-profile primitive so [ProcessReferrals]
+// can compose it across a team-wide slice.
+func (s *Service) processReferralBatch(batch ReferralBatch, ctx context.Context) error {
 	successIndices := make([]int, 0, len(batch.Messages))
 	var errs []error
 
 	for i, msg := range batch.Messages {
 		if err := s.fetcher.SendCustomMessage(msg, ctx); err != nil {
-			errs = append(errs, fmt.Errorf("send referral %d: %w", batch.EntryIndices[i], err))
+			errs = append(errs, fmt.Errorf("profile %s: send referral %d: %w", batch.ProfileID, batch.EntryIndices[i], err))
 			continue
 		}
 		successIndices = append(successIndices, batch.EntryIndices[i])
@@ -324,14 +415,14 @@ func (s *Service) ProcessReferrals(batch *ReferralBatch, ctx context.Context) er
 		var err error
 		updatedJSON, err = sjson.Set(updatedJSON, fmt.Sprintf("%d.processedAt", idx), processedAt)
 		if err != nil {
-			errs = append(errs, fmt.Errorf("set processedAt on referral %d: %w", idx, err))
+			errs = append(errs, fmt.Errorf("profile %s: set processedAt on referral %d: %w", batch.ProfileID, idx, err))
 			return errors.Join(errs...)
 		}
 	}
 
 	writeBackJSON, err := sjson.SetRaw("", "data."+batch.ReferralsField, updatedJSON)
 	if err != nil {
-		errs = append(errs, fmt.Errorf("build referrals write-back JSON: %w", err))
+		errs = append(errs, fmt.Errorf("profile %s: build referrals write-back JSON: %w", batch.ProfileID, err))
 		return errors.Join(errs...)
 	}
 
@@ -339,7 +430,7 @@ func (s *Service) ProcessReferrals(batch *ReferralBatch, ctx context.Context) er
 		P2PID: batch.ProfileID,
 		JSON:  writeBackJSON,
 	}, ctx); err != nil {
-		errs = append(errs, fmt.Errorf("referrals write-back: %w", err))
+		errs = append(errs, fmt.Errorf("profile %s: referrals write-back: %w", batch.ProfileID, err))
 	}
 
 	return errors.Join(errs...)
