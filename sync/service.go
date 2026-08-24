@@ -37,6 +37,10 @@ type Service struct {
 	// CampaignName must be set on SyncContext first.
 	campaign *FundraisingCampaign
 	mapper   OrttoMapper
+
+	// Optional per-referral concurrency guard. Nil means every message
+	// is attempted.
+	referralSendFilter ReferralSendFilter
 }
 
 // serviceOptions holds optional configuration for NewService.
@@ -44,6 +48,7 @@ type serviceOptions struct {
 	recordRequests           bool
 	debug                    bool
 	fundraisingCampaignCache FundraisingCampaignCache
+	referralSendFilter       ReferralSendFilter
 }
 
 // ServiceOption is a functional option for configuring NewService.
@@ -75,6 +80,18 @@ func ServiceWithFundraisingCampaignCache(c FundraisingCampaignCache) ServiceOpti
 	}
 }
 
+// ServiceWithReferralSendFilter supplies a [ReferralSendFilter] that
+// [Service.ProcessReferrals] consults before every SendCustomMessage
+// so callers can inject per-entry concurrency protection without fez
+// importing any storage backend. Omitting this option (or passing nil)
+// leaves the send loop unguarded — every message in every batch is
+// attempted.
+func ServiceWithReferralSendFilter(f ReferralSendFilter) ServiceOption {
+	return func(o *serviceOptions) {
+		o.referralSendFilter = f
+	}
+}
+
 // NewService creates a Service for the given campaign configuration.
 func NewService(config Config, campaignID string, trigger TriggerInfo, opts ...ServiceOption) *Service {
 	var o serviceOptions
@@ -94,6 +111,7 @@ func NewService(config Config, campaignID string, trigger TriggerInfo, opts ...S
 			SyncContext:              sc,
 			FundraisingCampaignCache: o.fundraisingCampaignCache,
 		},
+		referralSendFilter: o.referralSendFilter,
 	}
 }
 
@@ -388,9 +406,31 @@ func (s *Service) ProcessReferrals(batches []ReferralBatch, ctx context.Context)
 // each message, then write back processedAt for skipped-plus-success
 // entries. Kept as the single-profile primitive so [ProcessReferrals]
 // can compose it across a team-wide slice.
+//
+// When a [ReferralSendFilter] is configured on the service, the batch
+// is gated through AllowSend before the send loop. A denial short-
+// circuits the whole batch — no sends, no write-back — so
+// processedAt stays unset for every unprocessed entry and a later
+// trigger can re-flow the profile once the reservation window
+// clears. A filter error is fail-closed (same skip effect, error
+// joined into the return). On a Proceed, the release closure is
+// invoked only when the send loop makes zero progress (every send
+// failed) so a legitimate retry can re-reserve on the next trigger;
+// any partial or full success keeps the reservation as the record of
+// work done for this profile. See [ReferralSendFilter] for the full
+// contract.
 func (s *Service) processReferralBatch(batch ReferralBatch, ctx context.Context) error {
 	successIndices := make([]int, 0, len(batch.Messages))
 	var errs []error
+
+	allow, release, filterErr := s.checkReferralFilter(ctx, batch.ProfileID)
+	if filterErr != nil {
+		return fmt.Errorf("profile %s: referral filter: %w", batch.ProfileID, filterErr)
+	}
+	if !allow {
+		log.Printf("Skipping referral batch: profile=%s filter=denied", batch.ProfileID)
+		return nil
+	}
 
 	for i, msg := range batch.Messages {
 		if err := s.fetcher.SendCustomMessage(msg, ctx); err != nil {
@@ -398,6 +438,17 @@ func (s *Service) processReferralBatch(batch ReferralBatch, ctx context.Context)
 			continue
 		}
 		successIndices = append(successIndices, batch.EntryIndices[i])
+	}
+
+	// Zero-progress failure — every send in the batch failed. Roll
+	// back the reservation so a next-trigger retry within the debounce
+	// window can re-reserve. Any partial success leaves the
+	// reservation in place; the failed entries stay processedAt-empty
+	// and are retried on the next trigger after the window closes.
+	if release != nil && len(successIndices) == 0 && len(errs) > 0 {
+		if relErr := release(ctx); relErr != nil {
+			errs = append(errs, fmt.Errorf("profile %s: referral release: %w", batch.ProfileID, relErr))
+		}
 	}
 
 	// Write back processedAt for skipped entries (always) plus successful
@@ -434,6 +485,15 @@ func (s *Service) processReferralBatch(batch ReferralBatch, ctx context.Context)
 	}
 
 	return errors.Join(errs...)
+}
+
+// checkReferralFilter consults the service's [ReferralSendFilter] (if
+// configured). Returns (true, nil, nil) when no filter is set.
+func (s *Service) checkReferralFilter(ctx context.Context, profileID string) (allow bool, release func(context.Context) error, err error) {
+	if s.referralSendFilter == nil {
+		return true, nil, nil
+	}
+	return s.referralSendFilter.AllowSend(ctx, profileID)
 }
 
 // --- Ortto field management ---
