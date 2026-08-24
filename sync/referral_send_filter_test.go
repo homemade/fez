@@ -227,88 +227,73 @@ func TestProcessReferrals_FilterError_FailClosed(t *testing.T) {
 	}
 }
 
-// TestProcessReferrals_ZeroProgress_ReleaseCalled pins the release-
-// on-total-failure contract: when every SendCustomMessage in a batch
-// fails, the release closure rolls the reservation back so a
-// next-trigger retry within the debounce window can re-reserve.
-func TestProcessReferrals_ZeroProgress_ReleaseCalled(t *testing.T) {
-	messagesServer := newTestRaiselyMessagesServer(t, func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusBadGateway)
-	})
-	raiselyAPI := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	}))
-	t.Cleanup(raiselyAPI.Close)
-
-	filter := &stubReferralFilter{}
-	svc := newFilterTestService(t, messagesServer.URL, raiselyAPI.URL, filter)
-	batch := threeEntryBatch()
-
-	if err := svc.ProcessReferrals([]ReferralBatch{batch}, t.Context()); err == nil {
-		t.Fatal("expected send-failure error to surface, got nil")
+// TestProcessReferrals_ReleaseNeverCalled pins the core safety
+// invariant: the release closure is NEVER invoked, regardless of send
+// outcome. Calling release on failure would pop the reservation
+// timestamp and let a concurrent worker's CheckAndReserve Proceed
+// against a fresh slot — defeating the whole point of the gate.
+// Referrals have no replay path anyway; a next-trigger retry waits
+// for the reservation window to close naturally.
+//
+// The table covers all-success, partial-success, and zero-progress
+// paths in one spec — the assertion is the same for every outcome.
+func TestProcessReferrals_ReleaseNeverCalled(t *testing.T) {
+	cases := []struct {
+		name    string
+		handler http.HandlerFunc
+		wantErr bool
+	}{
+		{
+			name: "all sends succeed",
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusOK)
+			},
+			wantErr: false,
+		},
+		{
+			name: "partial send failure (only b@ fails)",
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				body := readAll(t, r)
+				email := gjson.GetBytes(body, "data.data.user.email").String()
+				if strings.Contains(email, "b@") {
+					w.WriteHeader(http.StatusBadGateway)
+					return
+				}
+				w.WriteHeader(http.StatusOK)
+			},
+			wantErr: true,
+		},
+		{
+			name: "every send fails (zero progress)",
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusBadGateway)
+			},
+			wantErr: true,
+		},
 	}
-	if got, want := len(filter.released), 1; got != want {
-		t.Errorf("expected 1 release invocation on zero-progress batch, got %d", got)
-	} else if filter.released[0] != "profile-xyz" {
-		t.Errorf("release should fire for profile-xyz, got %q", filter.released[0])
-	}
-}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			messagesServer := newTestRaiselyMessagesServer(t, tc.handler)
+			raiselyAPI := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusOK)
+			}))
+			t.Cleanup(raiselyAPI.Close)
 
-// TestProcessReferrals_PartialProgress_ReleaseNotCalled pins the
-// converse: on any partial or full success, the reservation stays as
-// the record of work done — release must NOT fire, so a concurrent
-// worker within the debounce window can't observe an empty slot and
-// re-race on the already-dispatched entries.
-func TestProcessReferrals_PartialProgress_ReleaseNotCalled(t *testing.T) {
-	messagesServer := newTestRaiselyMessagesServer(t, func(w http.ResponseWriter, r *http.Request) {
-		body := readAll(t, r)
-		email := gjson.GetBytes(body, "data.data.user.email").String()
-		if strings.Contains(email, "b@") {
-			w.WriteHeader(http.StatusBadGateway)
-			return
-		}
-		w.WriteHeader(http.StatusOK)
-	})
-	raiselyAPI := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	}))
-	t.Cleanup(raiselyAPI.Close)
+			filter := &stubReferralFilter{}
+			svc := newFilterTestService(t, messagesServer.URL, raiselyAPI.URL, filter)
+			batch := threeEntryBatch()
 
-	filter := &stubReferralFilter{}
-	svc := newFilterTestService(t, messagesServer.URL, raiselyAPI.URL, filter)
-	batch := threeEntryBatch()
-
-	if err := svc.ProcessReferrals([]ReferralBatch{batch}, t.Context()); err == nil {
-		t.Fatal("expected partial send-failure error, got nil")
-	}
-	if len(filter.released) != 0 {
-		t.Errorf("release should NOT fire on partial progress, released=%v", filter.released)
-	}
-}
-
-// TestProcessReferrals_ReleaseError_Joined pins that a release-side
-// error is joined into ProcessReferrals's return alongside the send
-// errors but doesn't block the rest of the outer batch loop.
-func TestProcessReferrals_ReleaseError_Joined(t *testing.T) {
-	messagesServer := newTestRaiselyMessagesServer(t, func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusBadGateway)
-	})
-	raiselyAPI := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	}))
-	t.Cleanup(raiselyAPI.Close)
-
-	relErr := errors.New("release failed")
-	filter := &stubReferralFilter{releaseErr: map[string]error{"profile-xyz": relErr}}
-	svc := newFilterTestService(t, messagesServer.URL, raiselyAPI.URL, filter)
-	batch := threeEntryBatch()
-
-	err := svc.ProcessReferrals([]ReferralBatch{batch}, t.Context())
-	if err == nil {
-		t.Fatal("expected joined error, got nil")
-	}
-	if !errors.Is(err, relErr) {
-		t.Errorf("release error should be joined into return, got %v", err)
+			err := svc.ProcessReferrals([]ReferralBatch{batch}, t.Context())
+			if tc.wantErr && err == nil {
+				t.Fatalf("expected error, got nil")
+			}
+			if !tc.wantErr && err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if len(filter.released) != 0 {
+				t.Errorf("release must NEVER be called by Service — got %v", filter.released)
+			}
+		})
 	}
 }
 

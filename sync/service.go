@@ -413,17 +413,25 @@ func (s *Service) ProcessReferrals(batches []ReferralBatch, ctx context.Context)
 // processedAt stays unset for every unprocessed entry and a later
 // trigger can re-flow the profile once the reservation window
 // clears. A filter error is fail-closed (same skip effect, error
-// joined into the return). On a Proceed, the release closure is
-// invoked only when the send loop makes zero progress (every send
-// failed) so a legitimate retry can re-reserve on the next trigger;
-// any partial or full success keeps the reservation as the record of
-// work done for this profile. See [ReferralSendFilter] for the full
-// contract.
+// joined into the return).
+//
+// The release closure returned on a Proceed is intentionally NEVER
+// invoked here. Calling release on failure would pop the reservation
+// timestamp and let the next concurrent worker's CheckAndReserve
+// Proceed against a fresh slot — defeating the whole point of the
+// gate. Referrals have no replay path either (unlike the Ortto send
+// side, which uses release + RecordAsDeferred to hand off to a
+// tenant-hold sweep), so there is no consumer that would benefit
+// from a rolled-back reservation. Failed entries stay processedAt-
+// empty and are retried on the next trigger AFTER the reservation
+// window closes — sub-minute for the leading-edge debounce, which
+// is nothing on the sweep's hourly cadence. See
+// [ReferralSendFilter] for the full contract.
 func (s *Service) processReferralBatch(batch ReferralBatch, ctx context.Context) error {
 	successIndices := make([]int, 0, len(batch.Messages))
 	var errs []error
 
-	allow, release, filterErr := s.checkReferralFilter(ctx, batch.ProfileID)
+	allow, _, filterErr := s.checkReferralFilter(ctx, batch.ProfileID)
 	if filterErr != nil {
 		return fmt.Errorf("profile %s: referral filter: %w", batch.ProfileID, filterErr)
 	}
@@ -438,17 +446,6 @@ func (s *Service) processReferralBatch(batch ReferralBatch, ctx context.Context)
 			continue
 		}
 		successIndices = append(successIndices, batch.EntryIndices[i])
-	}
-
-	// Zero-progress failure — every send in the batch failed. Roll
-	// back the reservation so a next-trigger retry within the debounce
-	// window can re-reserve. Any partial success leaves the
-	// reservation in place; the failed entries stay processedAt-empty
-	// and are retried on the next trigger after the window closes.
-	if release != nil && len(successIndices) == 0 && len(errs) > 0 {
-		if relErr := release(ctx); relErr != nil {
-			errs = append(errs, fmt.Errorf("profile %s: referral release: %w", batch.ProfileID, relErr))
-		}
 	}
 
 	// Write back processedAt for skipped entries (always) plus successful

@@ -9,7 +9,7 @@ import "context"
 // the profile so two concurrent triggers on the same profile can't
 // both dispatch its unprocessed invitations.
 //
-// A nil filter (the zero value on a [Service]) dispatches every batch.
+// A nil filter (the zero value on a [Service]) dispatches every batch
 // Consumers that need concurrency protection
 // supply one via [ServiceWithReferralSendFilter].
 //
@@ -18,12 +18,9 @@ import "context"
 //
 // The three outcomes:
 //
-//   - allow=true, release non-nil, err=nil: dispatch the batch.
-//     On zero-progress failure (every SendCustomMessage failed) the
-//     caller invokes release(ctx) to roll the reservation back so a
-//     legitimate retry on the next trigger can re-reserve; on any
-//     partial or full success the reservation stands as the record of
-//     work done for this profile.
+//   - allow=true, err=nil: dispatch the batch. Failed entries stay
+//     processedAt-empty and retry on the next trigger AFTER the
+//     reservation window closes; there is no per-batch rollback.
 //   - allow=false, err=nil: skip this batch entirely. No sends, no
 //     write-back — a natural next trigger re-fetches and re-runs the
 //     mapper once the reservation window clears.
@@ -31,8 +28,14 @@ import "context"
 //     write-back), and the error is joined into ProcessReferrals's
 //     return so the caller sees the backing-store outage.
 //
-// A release-side error is joined into ProcessReferrals's return
-// alongside any send errors but doesn't block the remaining batches.
+// The release closure is returned for symmetry with the wider
+// protection stack's release-on-failure pattern but [Service] does
+// NOT invoke it — see [Service.processReferralBatch] for the
+// rationale (calling release on failure would pop the reservation
+// timestamp and let a concurrent worker Proceed against a fresh slot,
+// defeating the whole point of the gate). Consumers implementing
+// this interface may return a nil release closure; the fez side
+// tolerates either shape.
 type ReferralSendFilter interface {
 	AllowSend(ctx context.Context, profileID string) (allow bool, release func(context.Context) error, err error)
 }
