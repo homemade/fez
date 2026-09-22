@@ -57,6 +57,14 @@ const ActivityFeedFirstMatchPageSize = 40
 // to stay within Ortto's documented 1 request/second rate limit.
 const ActivityFeedFirstMatchPageDelay = time.Second
 
+// ActivityFeedContactCandidateLimit is the upper bound on how many person records
+// GetActivityFeedForContact considers when the identifying field (e.g. str::email)
+// resolves to more than one Ortto person — a Ortto data duplication we can't avoid
+// consumer-side. Every candidate is scored (by the created timestamp of its
+// top-of-interest entry) and the highest-scoring candidate wins, so several duplicate
+// records that each carry activities are all considered before we choose.
+const ActivityFeedContactCandidateLimit = 20
+
 // ActivityFeedMode controls how GetActivityFeedForContact fetches activities.
 type ActivityFeedMode int
 
@@ -368,6 +376,14 @@ func (o OrttoFetcherAndUpdater) CreateCustomPersonField(name, fieldType string, 
 // returns entries newest-first, the first page that contains a match has the most recent
 // match — older pages are not fetched.
 //
+// When more than one Ortto person shares the identifying field value (a data-side
+// duplicate, e.g. two person records with the same email), the contact lookup returns
+// up to ActivityFeedContactCandidateLimit records. Every candidate is scored by the
+// created_at of its top-of-interest entry — for LatestMatch that's the newest entry
+// satisfying match; for other modes it's the newest entry present — and the candidate
+// with the newest such entry wins. Returns nil, nil when no candidate has any usable
+// entry.
+//
 // The match parameter is only consulted when mode is ActivityFeedLatestMatch; callers should
 // pass nil for the other modes.
 //
@@ -405,7 +421,7 @@ func (o OrttoFetcherAndUpdater) GetActivityFeedForContact(
 		Post().
 		BodyBytes([]byte(fmt.Sprintf(`
 		{
-			"limit": 1,
+			"limit": %d,
 			"offset": 0,
 			"fields": ["%s"],
 			"filter": {
@@ -415,7 +431,7 @@ func (o OrttoFetcherAndUpdater) GetActivityFeedForContact(
 				}
 			}
 		}
-		`, contactFieldID, filterOperator, contactFieldID, contactFieldValueJSON))).
+		`, ActivityFeedContactCandidateLimit, contactFieldID, filterOperator, contactFieldID, contactFieldValueJSON))).
 		ToJSON(&contactResponse).
 		ErrorJSON(&contactResponse.Error).
 		Fetch(ctx)
@@ -427,38 +443,93 @@ func (o OrttoFetcherAndUpdater) GetActivityFeedForContact(
 		return nil, nil
 	}
 
-	personID := contactResponse.Contacts[0].ID
+	// Step 2: Retrieve the activity feed. When more than one contact matches the
+	// identifying field (Ortto duplicate) we score every candidate by the created_at
+	// of its top-of-interest entry and pick the newest across candidates. This
+	// handles the case where several duplicate records each carry activities.
+	var bestActivities []OrttoActivityFeedEntry
+	var bestCreated string
+	var lastFeed []OrttoActivityFeedEntry
+	for ci, contact := range contactResponse.Contacts {
+		if ci > 0 {
+			select {
+			case <-ctx.Done():
+				return lastFeed, ctx.Err()
+			case <-time.After(ActivityFeedFirstMatchPageDelay):
+			}
+		}
+		activities, top, err := o.fetchActivityFeedForPerson(contact.ID, activityID, mode, match, ctx)
+		if err != nil {
+			return activities, err
+		}
+		lastFeed = activities
+		if top != nil && (bestActivities == nil || top.Created > bestCreated) {
+			bestActivities = activities
+			bestCreated = top.Created
+		}
+	}
+	if bestActivities != nil {
+		return bestActivities, nil
+	}
+	// No candidate produced a usable entry; hand back the last feed so callers that
+	// still want to inspect it (or run selectActivity against it) can — this also
+	// preserves prior single-candidate behaviour where the full feed was returned.
+	return lastFeed, nil
+}
 
-	// Step 2: Retrieve the activity feed for the contact
+// fetchActivityFeedForPerson fetches the activity feed for a single person_id under
+// the given mode. It returns the activities together with the "top" entry the
+// caller uses to score this candidate against sibling person records:
+//   - ActivityFeedLatestMatch (match != nil) → top is the newest entry that
+//     satisfies match, or nil if no fetched entry does.
+//   - ActivityFeedLatest / ActivityFeedFirstMatch (or LatestMatch with match == nil)
+//     → top is the newest entry present, or nil for an empty feed.
+//
+// The returned entry is a pointer into the returned slice, so its Created can be
+// compared across candidates without an extra copy.
+func (o OrttoFetcherAndUpdater) fetchActivityFeedForPerson(
+	personID string,
+	activityID string,
+	mode ActivityFeedMode,
+	match func(OrttoActivityFeedEntry) bool,
+	ctx context.Context,
+) ([]OrttoActivityFeedEntry, *OrttoActivityFeedEntry, error) {
 	if mode == ActivityFeedLatest {
 		resp, err := o.fetchActivityFeedPage(personID, activityID, 1, 0, ctx)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
-		return resp.Activities, nil
+		if len(resp.Activities) == 0 {
+			return resp.Activities, nil, nil
+		}
+		return resp.Activities, &resp.Activities[0], nil
 	}
 
 	// Paginate until meta.has_more is false (or, for LatestMatch, until the current
-	// page contains a match).
+	// page contains a match — the API returns newest-first, so the first page with
+	// a match holds this candidate's newest matching entry).
 	var activities []OrttoActivityFeedEntry
 	offset := 0
 	for page := 0; ; page++ {
 		if page > 0 {
 			select {
 			case <-ctx.Done():
-				return activities, ctx.Err()
+				return activities, nil, ctx.Err()
 			case <-time.After(ActivityFeedFirstMatchPageDelay):
 			}
 		}
 		resp, err := o.fetchActivityFeedPage(personID, activityID, ActivityFeedFirstMatchPageSize, offset, ctx)
 		if err != nil {
-			return activities, err
+			return activities, nil, err
 		}
 		activities = append(activities, resp.Activities...)
 		if mode == ActivityFeedLatestMatch && match != nil {
-			for _, entry := range resp.Activities {
-				if match(entry) {
-					return activities, nil
+			for i := range resp.Activities {
+				if match(resp.Activities[i]) {
+					// Return a pointer into the accumulated slice so scoring
+					// callers see the same underlying entry.
+					top := &activities[len(activities)-len(resp.Activities)+i]
+					return activities, top, nil
 				}
 			}
 		}
@@ -471,7 +542,14 @@ func (o OrttoFetcherAndUpdater) GetActivityFeedForContact(
 		}
 		offset = resp.NextOffset
 	}
-	return activities, nil
+	if mode == ActivityFeedLatestMatch && match != nil {
+		// Full feed walked with no matching entry.
+		return activities, nil, nil
+	}
+	if len(activities) == 0 {
+		return activities, nil, nil
+	}
+	return activities, &activities[0], nil
 }
 
 // fetchActivityFeedPage retrieves a single page of the activity feed for a contact.
