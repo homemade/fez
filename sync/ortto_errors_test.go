@@ -250,3 +250,27 @@ func TestOrttoRateLimitError_ZeroTryInSecondsYieldsZeroDuration(t *testing.T) {
 		t.Errorf("RetryAfter(TryInSeconds=-5) = %v, want 0", got)
 	}
 }
+
+// TestCreateActivityDefinition_400ErrorBodySurfaced verifies a 400
+// with Ortto's standard `{request_id, code, error:"…"}` envelope
+// surfaces the real error text through the returned error. Guards
+// against a regression where the response type declared a nested
+// `{message, code}` object (wrong shape for definition errors, which
+// only the rate-limit path uses) and skipped ErrorJSON entirely,
+// swallowing the real 400 body as an unmarshal error.
+func TestCreateActivityDefinition_400ErrorBodySurfaced(t *testing.T) {
+	t.Parallel()
+	srv := newTestOrttoServer(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"request_id":"req-42","code":400,"error":"One or more attributes is invalid"}`))
+	})
+
+	o := newTestOrttoFetcher(srv.URL)
+	_, err := o.CreateActivityDefinition(ActivityDefinitionRequest{Name: "test"}, context.Background())
+	if err == nil {
+		t.Fatal("expected an error on 400")
+	}
+	if !strings.Contains(err.Error(), "One or more attributes is invalid") {
+		t.Errorf("error missing real 400 body text; got: %v", err)
+	}
+}

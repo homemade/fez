@@ -296,9 +296,13 @@ func (o OrttoFetcherAndUpdater) CreateActivityDefinition(req ActivityDefinitionR
 		Header("X-Api-Key", o.Config.API.Keys.Ortto).
 		BodyJSON(&req).
 		ToJSON(&response).
+		ErrorJSON(&response.Error).
 		Fetch(ctx)
 
 	if err != nil {
+		if response.Error.Error != "" {
+			return response, fmt.Errorf("failed to create activity definition: %s: %w", response.Error.Error, err)
+		}
 		return response, fmt.Errorf("failed to create activity definition: %w", err)
 	}
 

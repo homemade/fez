@@ -306,7 +306,11 @@ type ActivityDefinitionAttribute struct {
 	FieldID     string `json:"field_id"`
 }
 
-// ActivityDefinitionResponse represents the response from Ortto
+// ActivityDefinitionResponse represents the response from Ortto.
+// Error is decoded from non-2xx bodies via ErrorJSON; it uses the
+// standard OrttoError envelope (`{request_id, code, error:"…"}`) —
+// not the nested `{message, code}` object shape, which only appears
+// for the rate-limit case handled separately by the API validator.
 type ActivityDefinitionResponse struct {
 	CustomActivity struct {
 		ActivityFieldID string `json:"activity_field_id"`
@@ -314,10 +318,7 @@ type ActivityDefinitionResponse struct {
 		Name            string `json:"name"`
 		CreatedAt       string `json:"created_at"`
 	} `json:"custom_activity"`
-	Error *struct {
-		Message string `json:"message"`
-		Code    string `json:"code"`
-	} `json:"error,omitempty"`
+	Error OrttoError
 }
 
 // BuildActivityDefinitionRequest creates an activity definition request from the config field mappings.
