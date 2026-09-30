@@ -60,6 +60,29 @@ func Init(flavour Flavour) {
 			return fmt.Sprintf(`"%s"`, result)
 		})
 
+		// pathJoinQueryURL is the query-string sibling of pathJoinURL.
+		// arg is "<base>,<paramName>" — the piped value becomes the
+		// query parameter's value. Existing base-URL query params are
+		// preserved; a same-named param is overwritten.
+		gjson.AddModifier("pathJoinQueryURL", func(json, arg string) string {
+			value := gjson.Parse(json)
+			if !value.Exists() {
+				return ""
+			}
+			parts := strings.SplitN(arg, ",", 2)
+			if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+				return ""
+			}
+			u, err := url.Parse(parts[0])
+			if err != nil {
+				return ""
+			}
+			q := u.Query()
+			q.Set(parts[1], value.String())
+			u.RawQuery = q.Encode()
+			return fmt.Sprintf(`"%s"`, u.String())
+		})
+
 		gjson.AddModifier("currency", func(json, arg string) string {
 			res := gjson.Parse(json)
 			if !res.Exists() {

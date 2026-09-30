@@ -257,6 +257,8 @@ func formatTransformNote(transform string) string {
 		return "Uses @countryName transform"
 	case strings.HasPrefix(transform, "@pathJoinURL"):
 		return "Uses @pathJoinURL transform"
+	case strings.HasPrefix(transform, "@pathJoinQueryURL"):
+		return "Uses @pathJoinQueryURL transform"
 	case strings.HasPrefix(transform, "@currency:"):
 		arg := strings.TrimPrefix(transform, "@currency:")
 		return fmt.Sprintf("Uses @currency:%s transform", arg)
