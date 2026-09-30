@@ -72,9 +72,16 @@ func GenerateFieldDocumentation(config Config, campaignLabel string, isPersonFie
 // processFieldMappings extracts field documentation from a FieldMappings struct.
 // Fields are processed in sorted order by field ID for deterministic output.
 func processFieldMappings(rows *[]FieldDocRow, mappings FieldMappings, transforms map[string]string, isBuiltin bool, isTeamField bool, isReferralField bool, isPersonFieldFn func(fieldID string) bool) {
-	// Strings
+	// Strings — mirrors OrttoActivitiesMapper.extractFieldMappings's DisplayType selection
 	for _, fieldID := range sortedKeys(mappings.Strings) {
-		*rows = append(*rows, createFieldDocRow(fieldID, mappings.Strings[fieldID], "Text", transforms, isBuiltin, isTeamField, isReferralField, isPersonFieldFn))
+		fieldType := "Text"
+		switch {
+		case fieldID == "str::email":
+			fieldType = "Email"
+		case strings.HasSuffix(fieldID, "-url"):
+			fieldType = "Link"
+		}
+		*rows = append(*rows, createFieldDocRow(fieldID, mappings.Strings[fieldID], fieldType, transforms, isBuiltin, isTeamField, isReferralField, isPersonFieldFn))
 	}
 
 	// Texts

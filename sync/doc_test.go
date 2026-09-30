@@ -246,3 +246,36 @@ func TestExtensionsDocumentation_FormatCSV(t *testing.T) {
 		t.Errorf("expected Total In Window row, got %q", lines[3])
 	}
 }
+
+// TestProcessFieldMappings_StringDisplayType pins the CSV field-type
+// column to the same display-type buckets OrttoActivitiesMapper's
+// extractFieldMappings uses when building the Activity Definition:
+// str::email → Email, *-url → Link, everything else → Text.
+func TestProcessFieldMappings_StringDisplayType(t *testing.T) {
+	mappings := FieldMappings{
+		Strings: map[string]string{
+			"str::email":            "user.email",
+			"str:cm:personal-page-url": "path|@pathJoinURL:https://x.io",
+			"str:cm:shirt-size":     "private.shirt",
+		},
+	}
+
+	var rows []FieldDocRow
+	processFieldMappings(&rows, mappings, nil, false, false, false, func(string) bool { return false })
+
+	got := map[string]string{}
+	for _, r := range rows {
+		got[r.FieldID] = r.FieldType
+	}
+
+	want := map[string]string{
+		"str::email":               "Email",
+		"str:cm:personal-page-url": "Link",
+		"str:cm:shirt-size":        "Text",
+	}
+	for id, wantType := range want {
+		if got[id] != wantType {
+			t.Errorf("%s: FieldType = %q, want %q", id, got[id], wantType)
+		}
+	}
+}
